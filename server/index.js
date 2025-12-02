@@ -5,14 +5,17 @@ import rateLimit from 'express-rate-limit';
 import 'dotenv/config'; 
 import connectMongo from './config/mongodb.js'; 
 import { pool as pgPool } from './config/postgres.js'; 
+import cookieParser from 'cookie-parser'; 
+import authRoutes from './routes/authRoutes.js';
+import errorHandler from './middleware/errorHandler.js'; 
+
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Connect Databases
+// Connect Mongodb Databases
 connectMongo(); 
 
-// --- SECURITY MIDDLEWARE ---
 app.use(helmet()); 
 
 // Rate Limiting
@@ -27,12 +30,19 @@ app.use(cors({
 }));
 
 app.use(express.json()); 
+app.use(cookieParser());
 
 
 // Routes
 app.get('/', (req, res) => {
   res.send('Smart School Bus API Running!');
 });
+
+/* auth routes */
+app.use('/api/auth', authRoutes);
+
+
+app.use(errorHandler);
 
 // Start the server
 app.listen(PORT, () => {

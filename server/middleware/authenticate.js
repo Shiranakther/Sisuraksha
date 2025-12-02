@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 
 export const authenticateToken = (req, res, next) => {
-    // 1. Get token from Authorization header (Step 5)
+    //  Get token from Authorization header    
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Expects 'Bearer <token>'
 
@@ -12,7 +12,7 @@ export const authenticateToken = (req, res, next) => {
     }
 
     try {
-        //  Validate access token (Step 6)
+        //  Validate access token 
         const decoded = jwt.verify(token, ACCESS_SECRET);
         
         // Attach user info to the request for the next middleware/route handler

@@ -7,5 +7,4 @@ export const ROLES = {
     STUDENT: 'Student',
 };
 
-// Define an array of all valid role names for validation
 export const ALL_ROLES = Object.values(ROLES);
