@@ -112,7 +112,7 @@ Typical architecture layers:
 ## 📂 Folder Structure
 
 ```
-/backend            # APIs, validation, routing engine, event hashing    
+/server            # APIs, validation, routing engine, event hashing    
 /mobile-parent      # Parent app  
 /mobile-driver      # Driver app  
 /ml-models          # Training notebooks & models  
