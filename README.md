@@ -158,6 +158,10 @@ Typical architecture layers:
 
 ---
 
+## 🐳 Deployment & Containerization
+
+The backend services, including the Node.js APIs, routing engine, and ML inference endpoints, are containerized using Docker. Docker ensures consistent environments across development, testing, and deployment, simplifies dependency management, and allows the backend to be easily scaled or deployed on cloud platforms. Each service runs in its own container, and environment variables are managed via .env files for security and flexibility.
+
 ## 🧪 Dataset Details  
 - Student behavior dataset (video + annotation)  
 - Driver vigilance dataset  
