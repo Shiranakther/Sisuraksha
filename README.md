@@ -103,7 +103,7 @@ Typical architecture layers:
 **AI Models:** PyTorch, TensorFlow, MediaPipe, YOLO, Transformers  
 **Edge Device:** Jetson Nano / Raspberry Pi  
 **NFC Module:** PN532 Reader  
-**Database:** PostgreSQL  
+**Database:** PostgreSQL ( Superbase ) 
 **Deployment:** Docker
 **Others:** OpenCV, SHA-256, GPS/IMU Modules  
 
@@ -112,18 +112,11 @@ Typical architecture layers:
 ## 📂 Folder Structure
 
 ```
-/server            # APIs, validation, routing engine, event hashing    
-/mobile-parent      # Parent app  
-/mobile-driver      # Driver app  
+/server             # APIs, validation, routing engine, event hashing    
+/parent_app         # Parent app  
+/driver_app         # Driver app  
 /ml-models          # Training notebooks & models  
-/edge               # Jetson/RPi inference scripts  
-/data               # Datasets (anonymized)  
-/docs               # Documentation, diagrams, reports  
-/members
-   /member1         # Work logs + research + experiments  
-   /member2
-   /member3
-   /member4
+
 ```
 
 ---
