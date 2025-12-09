@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "parent_app",
-    "slug": "parent_app",
+    "name": "driver_app",
+    "slug": "driver_app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "parentapp",
+    "scheme": "driverapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -38,7 +38,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
