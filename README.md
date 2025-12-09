@@ -121,6 +121,31 @@ Typical architecture layers:
 
 ---
 
+## Folder Structure
+
+```
+create .env file
+ 
+cd server               # Navigate to server folder 
+npm install             # install dependancies
+npm run dev
+
+cd driver_app           # Navigate to driver app
+npm install
+npm install -g expo-cli
+npx expo install react-native-gesture-handler react-native-reanimated react-native-screens react-native-safe-area-context @react-navigation/native @react-navigation/bottom-tabs
+npx tailwindcss init
+npx expo start
+
+cd parent_app           # Navigate to driver app
+npm install
+npm install -g expo-cli
+npx expo install react-native-gesture-handler react-native-reanimated react-native-screens react-native-safe-area-context @react-navigation/native @react-navigation/bottom-tabs
+npx tailwindcss init
+npx expo start
+
+```
+
 ## 👥 Team & Individual Contributions  
 
 | Member | Reg No | Responsibilities |
