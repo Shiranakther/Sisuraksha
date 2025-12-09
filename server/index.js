@@ -9,6 +9,8 @@ import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
 import errorHandler from './middleware/errorHandler.js'; 
 
+import testRoutes from './routes/testRoutes.js'
+
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -40,6 +42,8 @@ app.get('/', (req, res) => {
 
 /* auth routes */
 app.use('/api/auth', authRoutes);
+
+app.use('/api', testRoutes);
 
 
 app.use(errorHandler);
