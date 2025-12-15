@@ -103,7 +103,7 @@ Typical architecture layers:
 **AI Models:** PyTorch, TensorFlow, MediaPipe, YOLO, Transformers  
 **Edge Device:** Jetson Nano / Raspberry Pi  
 **NFC Module:** PN532 Reader  
-**Database:** PostgreSQL  
+**Database:** PostgreSQL ( Superbase ) 
 **Deployment:** Docker
 **Others:** OpenCV, SHA-256, GPS/IMU Modules  
 
@@ -112,21 +112,39 @@ Typical architecture layers:
 ## 📂 Folder Structure
 
 ```
-/backend            # APIs, validation, routing engine, event hashing    
-/mobile-parent      # Parent app  
-/mobile-driver      # Driver app  
+/server             # APIs, validation, routing engine, event hashing    
+/parent_app         # Parent app  
+/driver_app         # Driver app  
 /ml-models          # Training notebooks & models  
-/edge               # Jetson/RPi inference scripts  
-/data               # Datasets (anonymized)  
-/docs               # Documentation, diagrams, reports  
-/members
-   /member1         # Work logs + research + experiments  
-   /member2
-   /member3
-   /member4
+
 ```
 
 ---
+
+## How to install
+
+```
+create .env file
+ 
+cd server               # Navigate to server folder 
+npm install             # install dependancies
+npm run dev
+
+cd driver_app           # Navigate to driver app
+npm install
+npm install -g expo-cli
+npx expo install react-native-gesture-handler react-native-reanimated react-native-screens react-native-safe-area-context @react-navigation/native @react-navigation/bottom-tabs
+npx tailwindcss init
+npx expo start
+
+cd parent_app           # Navigate to driver app
+npm install
+npm install -g expo-cli
+npx expo install react-native-gesture-handler react-native-reanimated react-native-screens react-native-safe-area-context @react-navigation/native @react-navigation/bottom-tabs
+npx tailwindcss init
+npx expo start
+
+```
 
 ## 👥 Team & Individual Contributions  
 
@@ -157,6 +175,10 @@ Typical architecture layers:
 - Unsafe route patterns  
 
 ---
+
+## 🐳 Deployment & Containerization
+
+The backend services, including the Node.js APIs, routing engine, and ML inference endpoints, are containerized using Docker. Docker ensures consistent environments across development, testing, and deployment, simplifies dependency management, and allows the backend to be easily scaled or deployed on cloud platforms. Each service runs in its own container, and environment variables are managed via .env files for security and flexibility.
 
 ## 🧪 Dataset Details  
 - Student behavior dataset (video + annotation)  
