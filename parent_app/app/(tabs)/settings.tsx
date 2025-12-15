@@ -15,7 +15,7 @@ export default function SettingsScreen() {
             <Text className="text-base text-slate-700">{item}</Text>
             <Text className="text-slate-300">›</Text>
           </TouchableOpacity>
-        ))}
+        ))} 
       </View>
 
       <TouchableOpacity 

@@ -121,7 +121,7 @@ Typical architecture layers:
 
 ---
 
-## Folder Structure
+## How to install
 
 ```
 create .env file
