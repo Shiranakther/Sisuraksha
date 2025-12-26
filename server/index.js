@@ -1,50 +1,69 @@
 import express from 'express';
-import helmet from 'helmet'; 
-import cors from 'cors'; 
+import helmet from 'helmet';
+import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import 'dotenv/config'; 
-import connectMongo from './config/mongodb.js'; 
-import { pool as pgPool } from './config/postgres.js'; 
-import cookieParser from 'cookie-parser'; 
-import authRoutes from './routes/authRoutes.js';
-import errorHandler from './middleware/errorHandler.js'; 
+import 'dotenv/config';
+import cookieParser from 'cookie-parser';
 
+import './config/postgres.js';
+
+// Routes
+import authRoutes from './routes/authRoutes.js';
+import attendanceRoutes from './routes/attendanceRoutes.js';
+
+// Middleware
+import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Connect Mongodb Databases
-connectMongo(); 
+/* ==============================
+  DATABASE CONNECTION (Supabase/PostgreSQL)
+================================ */
 
-app.use(helmet()); 
+/* ==============================
+   SECURITY MIDDLEWARE
+================================ */
+app.use(helmet());
 
-// Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 100,
 });
 app.use(limiter);
 
-app.use(cors({
-    origin: process.env.NODE_ENV === 'production' ? 'http://localhost:5173/' : '*',
-}));
+app.use(
+  cors({
+    origin:
+      process.env.NODE_ENV === 'production'
+        ? 'http://localhost:5173'
+        : '*',
+    credentials: true,
+  })
+);
 
-app.use(express.json()); 
+/* ==============================
+   BODY PARSERS
+================================ */
+app.use(express.json());
 app.use(cookieParser());
 
-
-// Routes
+/* ==============================
+   HEALTH CHECK
+================================ */
 app.get('/', (req, res) => {
-  res.send('Smart School Bus API Running!');
+  res.status(200).send('Smart School Bus API Running 🚍');
 });
 
-/* auth routes */
-app.use('/api/auth', authRoutes);
 
+app.use('/api/auth', authRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 app.use(errorHandler);
 
-// Start the server
+
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode.`);
+  console.log(
+    `🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`
+  );
 });
