@@ -10,10 +10,10 @@ const saltRounds = 10;
 
 // user register
 export const register = async (req, res, next) => {
-    const { email, password, role } = req.body;
+    const { email, password, role, first_name, last_name, address } = req.body;
     
     
-    if (!email || !password || !role) {
+    if (!email || !password || !role || !first_name || !last_name) {
         return next(new AppError('Email, password, and role are required.', 400));
     }
     if (!ALL_ROLES.includes(role)) {
@@ -26,20 +26,20 @@ export const register = async (req, res, next) => {
     
     // Insert user into Supabase 'users' table
     const result = await pgPool.query(
-        `INSERT INTO users (email, password_hash, role) 
-         VALUES ($1, $2, $3) 
-         RETURNING id, email, role`,
-        [email, passwordHash, role]
+        `INSERT INTO users (email, password_hash, role, first_name, last_name, address) 
+        VALUES ($1, $2, $3, $4, $5, $6) 
+        RETURNING id, email, role, first_name, last_name`,
+        [email, passwordHash, role, first_name, last_name, address]
     );
-    
-    const user = result.rows[0];
 
+    const user = result.rows[0];
     
-    res.status(201).json({ 
-        status: 'success', 
+    res.status(201).json({
+        status: 'success',
         message: 'User registered successfully. Please log in.',
-        data: { id: user.id, email: user.email, role: user.role }
+        data: user
     });
+
 };
 
 
