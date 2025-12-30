@@ -13,7 +13,6 @@ import {
 
 const router = express.Router();
 
-
 // Create or Update Location
 router.post(
     '/location',
