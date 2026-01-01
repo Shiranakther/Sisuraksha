@@ -12,8 +12,7 @@ import errorHandler from './middleware/errorHandler.js';
 import testRoutes from './routes/testRoutes.js'
 import profileRoutes from './routes/profileRoutes.js';
 
-
-import { triggerRegistration, syncIoTDevice } from './controllers/attendanceController.js';
+import attendanceRoutes from './routes/attendanceRoute.js'
 
 
 const app = express();
@@ -50,10 +49,7 @@ app.use('/api/profile', profileRoutes);
 
 app.use('/api', testRoutes);
 
-
-app.post('/api/iot/sync', syncIoTDevice);
-app.post('/api/admin/register-trigger', triggerRegistration);
-
+app.use('/api/attendance',attendanceRoutes);
 
 app.use(errorHandler);
 
