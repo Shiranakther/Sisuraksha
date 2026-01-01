@@ -14,6 +14,9 @@ import profileRoutes from './routes/profileRoutes.js';
 import attendanceRoutes from './routes/attendanceRoute.js';
 
 
+import { triggerRegistration, syncIoTDevice } from './controllers/attendanceController.js';
+
+
 const app = express();
 const PORT = process.env.PORT || 5001;
 
@@ -48,6 +51,10 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
 app.use('/api', testRoutes);
+
+
+app.post('/api/iot/sync', syncIoTDevice);
+app.post('/api/admin/register-trigger', triggerRegistration);
 
 
 app.use(errorHandler);
