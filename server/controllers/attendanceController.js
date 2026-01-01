@@ -1,6 +1,7 @@
 import { pool as pgPool } from '../config/postgres.js';
 import AppError from '../utils/appError.js';
 
+
 export const triggerRegistration = async (req, res, next) => {
     try {
         const { childId } = req.body;
@@ -26,7 +27,7 @@ export const triggerRegistration = async (req, res, next) => {
         });
 
     } catch (err) {
-        next(err); // forward to global error handler
+        next(err); 
     }
 };
 
