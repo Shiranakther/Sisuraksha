@@ -11,6 +11,7 @@ import errorHandler from './middleware/errorHandler.js';
 
 import testRoutes from './routes/testRoutes.js'
 import profileRoutes from './routes/profileRoutes.js';
+import attendanceRoutes from './routes/attendanceRoute.js';
 
 
 import { triggerRegistration, syncIoTDevice } from './controllers/attendanceController.js';
@@ -47,6 +48,7 @@ app.get('/', (req, res) => {
 /* auth routes */
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 app.use('/api', testRoutes);
 
