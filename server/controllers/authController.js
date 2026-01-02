@@ -19,7 +19,6 @@ export const register = async (req, res, next) => {
     if (!ALL_ROLES.includes(role)) {
         return next(new AppError(`Invalid role specified: ${role}.`, 400));
     }
-
     
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
