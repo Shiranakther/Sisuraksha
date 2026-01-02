@@ -1,5 +1,6 @@
 import { pool as pgPool } from '../config/postgres.js';
 import AppError from '../utils/appError.js';
+import { addToBlockchain } from '../service/blockchainService.js';
 
 
 export const triggerRegistration = async (req, res, next) => {
@@ -31,77 +32,35 @@ export const triggerRegistration = async (req, res, next) => {
     }
 };
 
-
 export const syncIoTDevice = async (req, res, next) => {
     try {
-        const { cardUid, lat, lon } = req.body;
+        const { cardUid, lat, lon, deviceTime } = req.body;
 
-        const cmdRes = await pgPool.query(
-            'SELECT * FROM iot_device_commands WHERE id = 1'
-        );
-
-        if (cmdRes.rowCount === 0) {
-            return next(new AppError('IoT command configuration missing', 500));
-        }
-
+        const cmdRes = await pgPool.query('SELECT * FROM iot_device_commands WHERE id = 1');
+        if (cmdRes.rowCount === 0) return next(new AppError('IoT command configuration missing', 500));
         const currentCmd = cmdRes.rows[0];
 
-        // Device ping without card
         if (!cardUid) {
-            return res.status(200).json({
-                status: 'idle',
-                mode: currentCmd.command
-            });
+            return res.status(200).json({ status: 'idle', mode: currentCmd.command });
         }
 
-        //registration
-        
+        //  REGISTRATION MODE 
         if (currentCmd.command === 'REGISTRATION') {
             const childId = currentCmd.target_child_id;
+            if (!childId) return next(new AppError('No target child set', 400));
 
-            if (!childId) {
-                return next(new AppError('No target child set for registration', 400));
-            }
+            await pgPool.query('INSERT INTO public.card (id, is_active) VALUES ($1, true) ON CONFLICT (id) DO UPDATE SET is_active = true', [cardUid]);
+            const childUpdate = await pgPool.query('UPDATE public.children SET card_id = $1 WHERE id = $2', [cardUid, childId]);
+            
+            if (childUpdate.rowCount === 0) return next(new AppError('Child not found', 404));
 
-            await pgPool.query(
-                `INSERT INTO public.card (id, is_active) 
-                 VALUES ($1, true) 
-                 ON CONFLICT (id) DO UPDATE SET is_active = true`,
-                [cardUid]
-            );
-
-            const childUpdate = await pgPool.query(
-                'UPDATE public.children SET card_id = $1 WHERE id = $2',
-                [cardUid, childId]
-            );
-
-            if (childUpdate.rowCount === 0) {
-                return next(new AppError('Child not found for registration', 404));
-            }
-
-            await pgPool.query(
-                `UPDATE iot_device_commands 
-                 SET command = 'IDLE', target_child_id = NULL 
-                 WHERE id = 1`
-            );
-
-            return res.status(200).json({
-                status: 'success',
-                message: 'Card linked successfully',
-                mode: 'IDLE'
-            });
+            await pgPool.query("UPDATE iot_device_commands SET command = 'IDLE', target_child_id = NULL WHERE id = 1");
+            return res.status(200).json({ status: 'success', message: 'Card linked', mode: 'IDLE' });
         }
 
-        //attendance mode 
-
-        const childRes = await pgPool.query(
-            'SELECT * FROM public.children WHERE card_id = $1',
-            [cardUid]
-        );
-
-        if (childRes.rowCount === 0) {
-            return next(new AppError('Unknown or unregistered card', 404));
-        }
+        //  ATTENDANCE MODE 
+        const childRes = await pgPool.query('SELECT * FROM public.children WHERE card_id = $1', [cardUid]);
+        if (childRes.rowCount === 0) return next(new AppError('Unknown card', 404));
 
 
 export const markAttendanceByCard = async (req, res, next) => {
@@ -203,62 +162,37 @@ export const markAttendanceByCard = async (req, res, next) => {
 
         //morning pickup
 
+        // MORNING PICKUP
         if (attCheck.rowCount === 0) {
             await pgPool.query(
                 `INSERT INTO public.attendance
                  (child_id, card_id, date, morning_pickup_time, morning_pickup_lat, morning_pickup_lon, last_action, school_id)
                  VALUES ($1, $2, $3, $4, $5, $6, 'MORNING_PICKUP', $7)`,
-                [child.id, cardUid, today, nowTime, lat, lon, child.school_id]
+                [child.id, cardUid, today, recordTime, lat, lon, child.school_id]
             );
 
-            return res.status(201).json({
-                status: 'success',
-                stage: 'Morning Pickup',
-                mode: 'IDLE'
-            });
+            await addToBlockchain(child.id, 'MORNING_PICKUP', { lat, lon }, deviceTime);
+
+            return res.status(201).json({ status: 'success', stage: 'Morning Pickup', mode: 'IDLE' });
         }
 
+        // SUBSEQUENT STAGES (Morning Drop, Evening Pickup/Drop)
         const att = attCheck.rows[0];
-
-        let timeField = null;
-        let latField = null;
-        let lonField = null;
-        let action = null;
+        let timeField, latField, lonField, action;
 
         if (!att.morning_drop_time) {
-            timeField = 'morning_drop_time';
-            latField = 'morning_drop_lat';
-            lonField = 'morning_drop_lon';
-            action = 'MORNING_DROP';
+            timeField = 'morning_drop_time'; latField = 'morning_drop_lat'; lonField = 'morning_drop_lon'; action = 'MORNING_DROP';
         } else if (!att.evening_pickup_time) {
-            timeField = 'evening_pickup_time';
-            latField = 'evening_pickup_lat';
-            lonField = 'evening_pickup_lon';
-            action = 'EVENING_PICKUP';
+            timeField = 'evening_pickup_time'; latField = 'evening_pickup_lat'; lonField = 'evening_pickup_lon'; action = 'EVENING_PICKUP';
         } else if (!att.evening_drop_time) {
-            timeField = 'evening_drop_time';
-            latField = 'evening_drop_lat';
-            lonField = 'evening_drop_lon';
-            action = 'EVENING_DROP';
+            timeField = 'evening_drop_time'; latField = 'evening_drop_lat'; lonField = 'evening_drop_lon'; action = 'EVENING_DROP';
         }
 
-        if (!timeField) {
-            return res.status(200).json({
-                status: 'done',
-                message: 'Attendance completed for today',
-                mode: 'IDLE'
-            });
-        }
+        if (!timeField) return res.status(200).json({ status: 'done', message: 'Day Finished', mode: 'IDLE' });
 
         await pgPool.query(
-            `UPDATE public.attendance
-             SET ${timeField} = $1,
-                 ${latField} = $2,
-                 ${lonField} = $3,
-                 last_action = $4,
-                 updated_at = NOW()
-             WHERE id = $5`,
-            [nowTime, lat, lon, action, att.id]
+            `UPDATE public.attendance SET ${timeField} = $1, ${latField} = $2, ${lonField} = $3, last_action = $4, updated_at = NOW() WHERE id = $5`,
+            [recordTime, lat, lon, action, att.id]
         );
 
         res.status(200).json({
