@@ -78,7 +78,7 @@ export const syncIoTDevice = async (req, res, next) => {
                  VALUES ($1, $2, $3, $4, $5, $6, 'MORNING_PICKUP', $7)`,
                 [child.id, cardUid, today, recordTime, lat, lon, child.school_id]
             );
-
+ -
             await addToBlockchain(child.id, 'MORNING_PICKUP', { lat, lon }, deviceTime);
 
             return res.status(201).json({ status: 'success', stage: 'Morning Pickup', mode: 'IDLE' });
