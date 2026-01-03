@@ -13,6 +13,7 @@ import testRoutes from './routes/testRoutes.js'
 import profileRoutes from './routes/profileRoutes.js';
 
 import attendanceRoutes from './routes/attendanceRoute.js'
+import assignRoutes from './routes/assignRoute.js'
 
 
 const app = express();
@@ -50,6 +51,8 @@ app.use('/api/profile', profileRoutes);
 app.use('/api', testRoutes);
 
 app.use('/api/attendance',attendanceRoutes);
+
+app.use('/api/assign',assignRoutes);
 
 app.use(errorHandler);
 
