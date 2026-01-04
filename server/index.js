@@ -14,6 +14,8 @@ import profileRoutes from './routes/profileRoutes.js';
 
 import attendanceRoutes from './routes/attendanceRoute.js'
 import assignRoutes from './routes/assignRoute.js'
+import driverRoutes from './routes/driverRoute.js'
+import parentRoutes from './routes/parentRoute.js'
 
 
 const app = express();
@@ -53,6 +55,9 @@ app.use('/api', testRoutes);
 app.use('/api/attendance',attendanceRoutes);
 
 app.use('/api/assign',assignRoutes);
+
+app.use('/api/driver',driverRoutes);
+app.use('/api/parent',parentRoutes);
 
 app.use(errorHandler);
 
