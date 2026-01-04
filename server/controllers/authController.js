@@ -8,37 +8,60 @@ import { ALL_ROLES } from '../config/roles.js';
 
 const saltRounds = 10;
 
-// user register
 export const register = async (req, res, next) => {
     const { email, password, role, first_name, last_name, address } = req.body;
-    
-    
+
     if (!email || !password || !role || !first_name || !last_name) {
-        return next(new AppError('Email, password, and role are required.', 400));
+        return next(new AppError('All fields are required.', 400));
     }
-    if (!ALL_ROLES.includes(role)) {
-        return next(new AppError(`Invalid role specified: ${role}.`, 400));
+
+    // 1. Get a client from the pool to manage the transaction
+    const client = await pgPool.connect();
+
+    try {
+        await client.query('BEGIN'); // Start Transaction
+
+        // 2. Hash Password
+        const passwordHash = await bcrypt.hash(password, 10);
+
+        // 3. Insert User
+        const userResult = await client.query(
+            `INSERT INTO users (email, password_hash, role, first_name, last_name, address) 
+             VALUES ($1, $2, $3, $4, $5, $6) 
+             RETURNING id, email, role, first_name, last_name`,
+            [email, passwordHash, role, first_name, last_name, address]
+        );
+        const user = userResult.rows[0];
+
+        // 4. If Role is Parent, AUTOMATICALLY create the parent profile
+        if (role === 'Parent') {
+            await client.query(
+                `INSERT INTO public.parent (user_id) VALUES ($1)`,
+                [user.id]
+            );
+        }
+
+        // 5. Commit Transaction
+        await client.query('COMMIT');
+
+        // 6. Return Success 
+        // Note: We are still NOT returning a token here. The user must login to get a token.
+        res.status(201).json({
+            status: 'success',
+            message: 'Account created successfully. Please log in.',
+            data: user
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK'); // Undo everything if error occurs
+        
+        if (error.code === '23505') { // Unique violation (e.g., email exists)
+            return next(new AppError('Email already in use', 409));
+        }
+        return next(error);
+    } finally {
+        client.release(); // Release client back to pool
     }
-    
-    const passwordHash = await bcrypt.hash(password, saltRounds);
-
-    
-    // Insert user into Supabase 'users' table
-    const result = await pgPool.query(
-        `INSERT INTO users (email, password_hash, role, first_name, last_name, address) 
-        VALUES ($1, $2, $3, $4, $5, $6) 
-        RETURNING id, email, role, first_name, last_name`,
-        [email, passwordHash, role, first_name, last_name, address]
-    );
-
-    const user = result.rows[0];
-    
-    res.status(201).json({
-        status: 'success',
-        message: 'User registered successfully. Please log in.',
-        data: user
-    });
-
 };
 
 
