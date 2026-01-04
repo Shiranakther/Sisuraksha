@@ -1,5 +1,6 @@
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native'; //  1. Import these
 import { AuthProvider } from '../auth/AuthContext';
 import { useAuth } from '../auth/useAuth';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -16,16 +17,25 @@ const ProtectedRoute = () => {
   useEffect(() => {
     if (isLoading) return;
 
-    const publicRoutes = ['index', 'login'];
-    const currentRoute = segments[0] || 'index';
-    const isPublic = publicRoutes.includes(currentRoute);
+    const inTabsGroup = segments[0] === '(tabs)';
 
-    if (!user && !isPublic) {
-      router.replace('/');
-    } else if (user && isPublic) {
+    // 1. If NOT logged in, and trying to access Tabs -> Go to Login
+    if (!user && inTabsGroup) {
+      router.replace('/login'); //  Changed from '/' to '/login' for clarity
+    } 
+    // 2. If LOGGED IN, and trying to access Login -> Go to Home
+    else if (user && segments[0] === 'login') {
       router.replace('/(tabs)/home');
     }
   }, [user, segments, isLoading]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
 
   return <Slot />;
 };

@@ -1,99 +1,140 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
 
-export default function HomeScreen() {
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert, RefreshControl } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons';
+import { useSchools, useRegisterChild, useMyChildren } from '@/hooks/useApi'; // 👈 Import new hook
+import { useQueryClient } from '@tanstack/react-query';
+
+export default function ParentDashboard() {
+  const [childName, setChildName] = useState('');
+  const [selectedSchool, setSelectedSchool] = useState('');
+  
+  const queryClient = useQueryClient();
+
+  // --- API Hooks ---
+  const { data: schools, isLoading: isLoadingSchools } = useSchools();
+  
+  //  1. Fetch Children Data
+  const { data: myChildren, isLoading: isLoadingChildren, refetch } = useMyChildren();
+  
+  const registerChildMutation = useRegisterChild();
+
+  const handleRegister = () => {
+    if (!childName.trim() || !selectedSchool) {
+      Alert.alert('Validation', 'Please fill in all fields.');
+      return;
+    }
+
+    registerChildMutation.mutate({
+      child_name: childName,
+      school_id: selectedSchool,
+    }, {
+      onSuccess: () => {
+        setChildName('');
+        // 👇 2. Refresh the list immediately after adding
+        queryClient.invalidateQueries({ queryKey: ['myChildren'] }); 
+      }
+    });
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ScrollView 
+      className="flex-1 bg-slate-50"
+      contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: 60 }}
+      refreshControl={<RefreshControl refreshing={isLoadingChildren} onRefresh={refetch} />}
+    >
+      
+      {/* Header */}
+      <View className="mb-6">
+        <Text className="text-3xl font-bold text-slate-800">Parent Dashboard</Text>
+        <Text className="text-base text-slate-500">Manage your children and bus rides</Text>
+      </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      {/* --- Register Child Form --- */}
+      <View className="bg-white rounded-2xl p-5 shadow-sm shadow-slate-200 mb-6">
+        <View className="flex-row items-center mb-4 gap-3">
+          <Ionicons name="person-add" size={24} color="#4F46E5" />
+          <Text className="text-lg font-bold text-slate-800">Register a Child</Text>
+        </View>
+
+        <Text className="text-sm font-semibold text-slate-600 mb-2">Child's Full Name</Text>
+        <TextInput
+          placeholder="e.g. Nimal Perera"
+          value={childName}
+          onChangeText={setChildName}
+          className="bg-slate-100 rounded-xl p-3.5 text-base mb-4 border border-slate-200"
+        />
+
+        <Text className="text-sm font-semibold text-slate-600 mb-2">Select School</Text>
+        <View className="bg-slate-100 rounded-xl border border-slate-200 mb-6 overflow-hidden">
+          {isLoadingSchools ? (
+            <ActivityIndicator color="#4F46E5" className="p-3.5" />
+          ) : (
+            <Picker
+              selectedValue={selectedSchool}
+              onValueChange={(val) => setSelectedSchool(val)}
+              style={{ width: '100%', height: 55 }}
+            >
+              <Picker.Item label="Select a school..." value="" color="#94a3b8" />
+              {schools?.map((s: any) => (
+                <Picker.Item key={s.id} label={s.school_name} value={s.id} />
+              ))}
+            </Picker>
+          )}
+        </View>
+
+        <TouchableOpacity
+          onPress={handleRegister}
+          disabled={registerChildMutation.isPending}
+          className="bg-indigo-600 p-4 rounded-xl items-center shadow-lg shadow-indigo-200"
+        >
+          {registerChildMutation.isPending ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text className="text-white font-bold text-base">Register Child</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* --- My Children List --- */}
+      <View className="bg-white rounded-2xl p-5 shadow-sm shadow-slate-200">
+         <View className="flex-row items-center mb-4 gap-3 border-b border-slate-100 pb-4">
+          <Ionicons name="people" size={24} color="#16A34A" />
+          <Text className="text-lg font-bold text-slate-800">My Children ({myChildren?.length || 0})</Text>
+        </View>
+
+        {isLoadingChildren ? (
+          <ActivityIndicator size="large" color="#16A34A" className="py-4" />
+        ) : myChildren && myChildren.length > 0 ? (
+          //  3. Map through the children list
+          <View className="gap-3">
+            {myChildren.map((child: any) => (
+              <View key={child.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex-row justify-between items-center">
+                <View>
+                  <Text className="text-lg font-bold text-slate-800">{child.child_name}</Text>
+                  <Text className="text-slate-500 text-sm">
+                    <Ionicons name="school" size={14} /> {child.school_name || 'Unknown School'}
+                  </Text>
+                </View>
+                
+                {/* Status Indicator for Card ID */}
+                <View className={`px-3 py-1 rounded-full ${child.card_id ? 'bg-green-100' : 'bg-orange-100'}`}>
+                  <Text className={`text-xs font-bold ${child.card_id ? 'text-green-700' : 'text-orange-700'}`}>
+                    {child.card_id ? 'Active' : 'No Card'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text className="text-slate-500 text-center py-4">
+             You haven't registered any children yet.
+          </Text>
+        )}
+      </View>
+
+    </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
-

@@ -1,6 +1,8 @@
-// app/index.tsx
+
+
+
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { useRegister } from '../hooks/useApi';
 import { router } from 'expo-router';
 import { UserRole } from '../utils/types';
@@ -8,34 +10,73 @@ import { UserRole } from '../utils/types';
 export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('Parent');
+  
+  //  New State Variables for required backend fields
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+
+
+  const role: UserRole = 'Parent';
+
   const registerMutation = useRegister();
 
-  const handleRegister = () => registerMutation.mutate({ email, password, role });
+  const handleRegister = () => {
+    // 1. Validation: Check all fields
+    if (!email.trim() || !password.trim() || !firstName.trim() || !lastName.trim() ) {
+      alert('All fields are required');
+      return;
+    }
+
+    console.log('REGISTER PAYLOAD ', {
+      email: email.trim(),
+      password,
+      role,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      
+    });
+
+    // 2. Send all data to mutation
+    registerMutation.mutate({
+      email: email.trim(),
+      password,
+      role,
+      first_name: firstName.trim(),
+      last_name: lastName.trim()
+      
+    });
+  };
 
   return (
-    <View className="flex-1 justify-center bg-white p-6">
-      <Text className="text-3xl font-bold text-center mb-2 text-slate-800">Create Account</Text>
-      <Text className="text-slate-500 text-center mb-8">Join the Smart School Bus Network</Text>
+    //  Changed View to ScrollView to handle keyboard covering inputs
+    <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} className="bg-white p-6">
+      
+      <Text className="text-3xl font-bold text-center mb-2 text-slate-800">
+        Create Parent Account
+      </Text>
+      <Text className="text-slate-500 text-center mb-8">
+        Join the Smart School Bus Network
+      </Text>
 
-      {/* FIX: Use standard styles for the toggle to prevent NativeWind crash */}
-      <View style={styles.roleContainer}>
-        {['Parent', 'Driver'].map((r) => {
-          const isActive = role === r;
-          return (
-            <TouchableOpacity 
-              key={r} 
-              onPress={() => setRole(r as UserRole)}
-              style={[styles.roleButton, isActive && styles.roleButtonActive]}
-            >
-              <Text style={[styles.roleText, isActive && styles.roleTextActive]}>
-                {r}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+      {/* --- Name Fields Row --- */}
+      <View className="flex-row justify-between mb-4">
+        <TextInput 
+          placeholder="First Name" 
+          value={firstName} 
+          onChangeText={setFirstName} 
+          className="bg-slate-50 border border-slate-200 rounded-xl p-4 w-[48%] text-base"
+        />
+        <TextInput 
+          placeholder="Last Name" 
+          value={lastName} 
+          onChangeText={setLastName} 
+          className="bg-slate-50 border border-slate-200 rounded-xl p-4 w-[48%] text-base"
+        />
       </View>
 
+      
+
+      {/* --- Email Field --- */}
       <TextInput 
         placeholder="Email" 
         value={email} 
@@ -44,6 +85,8 @@ export default function RegisterScreen() {
         autoCapitalize="none"
         keyboardType="email-address"
       />
+
+      {/* --- Password Field --- */}
       <TextInput 
         placeholder="Password" 
         value={password} 
@@ -56,23 +99,18 @@ export default function RegisterScreen() {
         onPress={handleRegister} 
         className="bg-blue-600 p-4 rounded-xl items-center shadow-lg shadow-blue-200"
       >
-        {registerMutation.isPending ? <ActivityIndicator color="#fff"/> : (
-          <Text className="text-white font-bold text-lg">Sign Up as {role}</Text>
+        {registerMutation.isPending ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text className="text-white font-bold text-lg">Sign Up as Parent</Text>
         )}
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => router.push('/login')} className="mt-6 items-center">
-        <Text className="text-slate-500">Already have an account? <Text className="text-blue-600 font-bold">Log In</Text></Text>
+        <Text className="text-slate-500">
+          Already have an account? <Text className="text-blue-600 font-bold">Log In</Text>
+        </Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
-
-// Add these standard styles at the bottom
-const styles = StyleSheet.create({
-  roleContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 8, padding: 4, marginBottom: 24 },
-  roleButton: { flex: 1, padding: 12, borderRadius: 6, alignItems: 'center' },
-  roleButtonActive: { backgroundColor: 'white', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  roleText: { color: '#64748b', fontWeight: '500' },
-  roleTextActive: { color: '#2563EB', fontWeight: '700' },
-});

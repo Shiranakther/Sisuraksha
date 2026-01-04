@@ -1,6 +1,9 @@
 import { pool as pgPool } from '../config/postgres.js';
 import AppError from '../utils/appError.js';
 
+
+
+
 // Create or Update Location (1 location per user)
 export const upsertLocation = async (req, res, next) => {
     try {
