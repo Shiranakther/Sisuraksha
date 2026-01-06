@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerParentProfile,registerChild, getSchoolsForDropdown,getMyChildren } from '../controllers/parentController.js'; // Import the controller we created
+import { registerParentProfile,registerChild, getSchoolsForDropdown,getMyChildren,getParentAttendance } from '../controllers/parentController.js'; // Import the controller we created
 
 const router = express.Router();
 
@@ -50,6 +50,13 @@ router.get(
     authenticateToken,
     authorizeRole([ROLES.PARENT]), 
     getMyChildren
+);
+
+router.get(
+    '/my-attendance',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]), // Only parents can access
+    getParentAttendance
 );
 
 export default router;

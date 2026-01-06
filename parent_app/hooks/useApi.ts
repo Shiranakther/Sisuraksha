@@ -182,3 +182,19 @@ export const useAssignDriver = () => {
     },
   });
 };
+
+
+export const useParentAttendance = (filters: { childId?: string, date?: string }) => {
+  return useQuery({
+    queryKey: ['parentAttendance', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      // Only append params if they exist (are not empty)
+      if (filters.childId) params.append('childId', filters.childId);
+      if (filters.date) params.append('date', filters.date);
+      
+      const { data } = await apiClient.get(`${API_ENDPOINTS.PARENT_ATTENDANCE}?${params.toString()}`);
+      return data.data;
+    },
+  });
+};

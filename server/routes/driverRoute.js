@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerDriverProfile } from '../controllers/driverController.js'; // Import the controller logic
+import { registerDriverProfile,getAssignedChildren,getDriverAttendance,getAttendanceAlerts } from '../controllers/driverController.js'; // Import the controller logic
 
 const router = express.Router();
 
@@ -31,4 +31,29 @@ router.get(
     }
 );
 
+
+router.get(
+    '/my-children',
+    authenticateToken, 
+    authorizeRole([ROLES.DRIVER]), // Only drivers can see this
+    getAssignedChildren
+);
+
+
+
+
+
+router.get(
+    '/attendance', 
+    authenticateToken, 
+    authorizeRole([ROLES.DRIVER]), 
+    getDriverAttendance
+);
+
+
+
+router.get('/alerts', authenticateToken, authorizeRole([ROLES.DRIVER]), getAttendanceAlerts);
+
 export default router;
+
+

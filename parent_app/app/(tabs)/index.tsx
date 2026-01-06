@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert, RefreshControl } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
@@ -138,3 +136,4 @@ export default function ParentDashboard() {
     </ScrollView>
   );
 }
+
