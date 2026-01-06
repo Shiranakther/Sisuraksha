@@ -63,9 +63,24 @@ export const registerParentProfile = async (req, res, next) => {
 
 
 //  Get List of Schools (Unchanged) 
+// export const getSchoolsForDropdown = async (req, res, next) => {
+//     try {
+//         const result = await pgPool.query('SELECT id, school_name FROM public.school ORDER BY school_name ASC');
+
+//         res.status(200).json({
+//             status: 'success',
+//             results: result.rows.length,
+//             data: result.rows 
+//         });
+//     } catch (error) {
+//         next(new AppError('Database error fetching schools', 500));
+//     }
+// };
+
 export const getSchoolsForDropdown = async (req, res, next) => {
     try {
-        const result = await pgPool.query('SELECT id, school_name FROM public.school ORDER BY school_name ASC');
+        //  UPDATED QUERY: Added latitude, longitude
+        const result = await pgPool.query('SELECT id, school_name, school_latitude, school_longitude FROM public.school ORDER BY school_name ASC');
 
         res.status(200).json({
             status: 'success',
@@ -180,5 +195,71 @@ export const getMyChildren = async (req, res, next) => {
 
     } catch (error) {
         next(new AppError('Database error fetching children', 500));
+    }
+};
+
+
+export const getParentAttendance = async (req, res, next) => {
+    const user_uuid = req.user.id; 
+    const { childId, date } = req.query; // Optional filters
+
+    try {
+        // 1. Get Parent ID from User ID
+        const parentRes = await pgPool.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) return next(new AppError('Parent profile not found.', 404));
+        const parentId = parentRes.rows[0].id;
+
+        // 2. Build the Query
+        // We join 'attendance' -> 'children' to filter by parent_id
+        let query = `
+            SELECT 
+                a.id AS attendance_id,
+                c.child_name,
+                s.school_name,
+                a.date,
+                a.status AS is_present,
+                a.morning_pickup_time,
+                a.morning_drop_time,
+                a.evening_pickup_time,
+                a.evening_drop_time,
+                a.morning_pickup_lat,
+                a.morning_pickup_lon,
+                a.last_action
+            FROM public.attendance a
+            JOIN public.children c ON a.child_id = c.id
+            LEFT JOIN public.school s ON a.school_id = s.id
+            WHERE c.parent_id = $1
+        `;
+
+        const params = [parentId];
+        let paramCount = 1;
+
+        // 3. Optional: Filter by specific Child
+        if (childId) {
+            paramCount++;
+            query += ` AND c.id = $${paramCount}`;
+            params.push(childId);
+        }
+
+        // 4. Optional: Filter by specific Date
+        if (date) {
+            paramCount++;
+            query += ` AND a.date = $${paramCount}`;
+            params.push(date);
+        }
+
+        // Order by newest first
+        query += ` ORDER BY a.date DESC, a.created_at DESC LIMIT 50`;
+
+        const result = await pgPool.query(query, params);
+
+        res.status(200).json({
+            status: 'success',
+            results: result.rowCount,
+            data: result.rows
+        });
+
+    } catch (error) {
+        next(new AppError('Database error fetching attendance', 500));
     }
 };

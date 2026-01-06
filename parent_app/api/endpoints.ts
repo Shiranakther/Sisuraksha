@@ -9,5 +9,6 @@ export const API_ENDPOINTS = {
   REGISTER_CHILD:"/parent/register_child",
   GET_MY_CHILD:"/parent/my-children",
   SHOW_ROUTES:"/assign/nearest-routes",
-  ASSIGN_DRIVER:"/assign/assign-driver"
+  ASSIGN_DRIVER:"/assign/assign-driver",
+  PARENT_ATTENDANCE:'/parent/my-attendance'
 } as const;
