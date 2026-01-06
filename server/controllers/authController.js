@@ -3,28 +3,87 @@ import bcrypt from 'bcryptjs';
 import { pool as pgPool } from '../config/postgres.js';
 import { signAccessToken, signRefreshToken, setRefreshCookie, createJti, hashToken } from '../utils/auth.js';
 import AppError from '../utils/appError.js';
+import axios from 'axios';
 import { ALL_ROLES } from '../config/roles.js';
 
 
 const saltRounds = 10;
 
+// export const register = async (req, res, next) => {
+//     const { email, password, role, first_name, last_name, address } = req.body;
+
+//     if (!email || !password || !role || !first_name || !last_name) {
+//         return next(new AppError('All fields are required.', 400));
+//     }
+
+//     // 1. Get a client from the pool to manage the transaction
+//     const client = await pgPool.connect();
+
+//     try {
+//         await client.query('BEGIN'); // Start Transaction
+
+//         // 2. Hash Password
+//         const passwordHash = await bcrypt.hash(password, 10);
+
+//         // 3. Insert User
+//         const userResult = await client.query(
+//             `INSERT INTO users (email, password_hash, role, first_name, last_name, address) 
+//              VALUES ($1, $2, $3, $4, $5, $6) 
+//              RETURNING id, email, role, first_name, last_name`,
+//             [email, passwordHash, role, first_name, last_name, address]
+//         );
+//         const user = userResult.rows[0];
+
+//         // 4. If Role is Parent, AUTOMATICALLY create the parent profile
+//         if (role === 'Parent') {
+//             await client.query(
+//                 `INSERT INTO public.parent (user_id) VALUES ($1)`,
+//                 [user.id]
+//             );
+//         }
+
+//         // 5. Commit Transaction
+//         await client.query('COMMIT');
+
+//         // 6. Return Success 
+//         // Note: We are still NOT returning a token here. The user must login to get a token.
+//         res.status(201).json({
+//             status: 'success',
+//             message: 'Account created successfully. Please log in.',
+//             data: user
+//         });
+
+//     } catch (error) {
+//         await client.query('ROLLBACK'); // Undo everything if error occurs
+        
+//         if (error.code === '23505') { // Unique violation (e.g., email exists)
+//             return next(new AppError('Email already in use', 409));
+//         }
+//         return next(error);
+//     } finally {
+//         client.release(); // Release client back to pool
+//     }
+// };
+
+
 export const register = async (req, res, next) => {
-    const { email, password, role, first_name, last_name, address } = req.body;
+    // 1. Destructure ALL possible fields (User + Driver)
+    const { 
+        email, password, role, first_name, last_name, address, // User fields
+        license_number, trip_start_lat, trip_start_lon, trip_end_lat, trip_end_lon, school_ids // Driver fields
+    } = req.body;
 
     if (!email || !password || !role || !first_name || !last_name) {
-        return next(new AppError('All fields are required.', 400));
+        return next(new AppError('Basic fields (Name, Email, Password) are required.', 400));
     }
 
-    // 1. Get a client from the pool to manage the transaction
     const client = await pgPool.connect();
 
     try {
         await client.query('BEGIN'); // Start Transaction
 
-        // 2. Hash Password
+        // --- A. Create User ---
         const passwordHash = await bcrypt.hash(password, 10);
-
-        // 3. Insert User
         const userResult = await client.query(
             `INSERT INTO users (email, password_hash, role, first_name, last_name, address) 
              VALUES ($1, $2, $3, $4, $5, $6) 
@@ -33,19 +92,52 @@ export const register = async (req, res, next) => {
         );
         const user = userResult.rows[0];
 
-        // 4. If Role is Parent, AUTOMATICALLY create the parent profile
+        // --- B. Handle PARENT Role ---
         if (role === 'Parent') {
-            await client.query(
-                `INSERT INTO public.parent (user_id) VALUES ($1)`,
-                [user.id]
-            );
+            await client.query('INSERT INTO public.parent (user_id) VALUES ($1)', [user.id]);
         }
 
-        // 5. Commit Transaction
+        // --- C. Handle DRIVER Role (The logic you asked for) ---
+        if (role === 'Driver') {
+            // 1. Validate Driver Fields
+            if (!license_number || !trip_start_lat || !trip_start_lon || !trip_end_lat || !trip_end_lon) {
+                throw new AppError('Driver requires: License, Start Location, and End Location.', 400);
+            }
+
+            // 2. Calculate Polyline via OSRM
+            let routePolyline = null;
+            try {
+                const osrmUrl = `http://router.project-osrm.org/route/v1/driving/${trip_start_lon},${trip_start_lat};${trip_end_lon},${trip_end_lat}?overview=full&geometries=geojson`;
+                const osrmRes = await axios.get(osrmUrl, { timeout: 5000 });
+                routePolyline = osrmRes.data.routes[0].geometry.coordinates;
+            } catch (err) {
+                console.error("OSRM Error:", err.message);
+                // Optional: Decide if you want to fail registration or just insert without route
+                // For now, we allow it but log the error.
+            }
+
+            // 3. Insert Driver Profile
+            const driverResult = await client.query(`
+                INSERT INTO public.driver (
+                    user_id, license_number, trip_start_latitude, trip_start_longitude, 
+                    trip_end_latitude, trip_end_longitude, route_polyline
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+            `, [user.id, license_number, trip_start_lat, trip_start_lon, trip_end_lat, trip_end_lon, JSON.stringify(routePolyline)]);
+
+            const driverId = driverResult.rows[0].id;
+
+            // 4. Link Schools (if provided)
+            if (school_ids && school_ids.length > 0) {
+                const schoolValues = school_ids.map((sId, index) => `('${driverId}', '${sId}', ${index + 1})`).join(',');
+                await client.query(`
+                    INSERT INTO public.driver_schools (driver_id, school_id, visit_order)
+                    VALUES ${schoolValues}
+                `);
+            }
+        }
+
         await client.query('COMMIT');
 
-        // 6. Return Success 
-        // Note: We are still NOT returning a token here. The user must login to get a token.
         res.status(201).json({
             status: 'success',
             message: 'Account created successfully. Please log in.',
@@ -53,17 +145,13 @@ export const register = async (req, res, next) => {
         });
 
     } catch (error) {
-        await client.query('ROLLBACK'); // Undo everything if error occurs
-        
-        if (error.code === '23505') { // Unique violation (e.g., email exists)
-            return next(new AppError('Email already in use', 409));
-        }
-        return next(error);
+        await client.query('ROLLBACK');
+        if (error.code === '23505') return next(new AppError('Email already in use', 409));
+        return next(error); // Pass custom AppErrors up
     } finally {
-        client.release(); // Release client back to pool
+        client.release();
     }
 };
-
 
 //User login
 

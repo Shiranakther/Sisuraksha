@@ -1,7 +1,7 @@
 import { pool as pgPool } from '../config/postgres.js';
 import AppError from '../utils/appError.js';
 import { addToBlockchain } from '../service/blockchainService.js';
-
+import { sendPushNotification } from '../service/notificationService.js'; // Ensure this is imported
 
 export const triggerRegistration = async (req, res, next) => {
     try {
@@ -109,3 +109,5 @@ export const syncIoTDevice = async (req, res, next) => {
 
     } catch (err) { next(err); }
 };
+
+
