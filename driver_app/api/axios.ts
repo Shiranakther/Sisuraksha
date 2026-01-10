@@ -8,7 +8,7 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
 }
 
 
-const BASE_URL = 'http://10.137.171.52:5000/api'; 
+const BASE_URL = 'http://192.168.51.84:5000/api';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -30,23 +30,36 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as CustomAxiosRequestConfig;
 
-    if (originalRequest && error.response?.status === 401 && !originalRequest._retry) {
+    // Don't retry if:
+    // 1. Already retried
+    // 2. No original request
+    // 3. Not a 401 error
+    // 4. It's the refresh endpoint itself (prevents infinite loop)
+    const isRefreshEndpoint = originalRequest?.url?.includes('/auth/refresh');
+
+    if (
+      originalRequest &&
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !isRefreshEndpoint
+    ) {
       originalRequest._retry = true;
       try {
         const response = await axios.post<{ token: string }>(
-          `${BASE_URL}${API_ENDPOINTS.REFRESH}`, 
-          {}, 
+          `${BASE_URL}${API_ENDPOINTS.REFRESH}`,
+          {},
           { withCredentials: true }
         );
-        
+
         const newToken = response.data.token;
         await tokenService.setAccessToken(newToken);
-        
+
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-        
+
         return apiClient(originalRequest);
       } catch (refreshError) {
+        // Refresh failed - clear token and redirect to login
         await tokenService.clearToken();
         router.replace('/');
         return Promise.reject(refreshError);
