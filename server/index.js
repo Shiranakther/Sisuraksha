@@ -17,6 +17,7 @@ import assignRoutes from './routes/assignRoute.js'
 import driverRoutes from './routes/driverRoute.js'
 import parentRoutes from './routes/parentRoute.js';
 import dailyPresentRoutes from './routes/dailyPresentRoutes.js';
+import trackingRoutes from './routes/trackingRoutes.js';
 
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/assign', assignRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/parent', parentRoutes);
 app.use('/api/daily-present', dailyPresentRoutes);
+app.use('/api/tracking', trackingRoutes);
 
 app.use(errorHandler);
 
