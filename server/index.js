@@ -1,13 +1,13 @@
 import express from 'express';
-import helmet from 'helmet'; 
-import cors from 'cors'; 
+import helmet from 'helmet';
+import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import 'dotenv/config'; 
-import connectMongo from './config/mongodb.js'; 
-import { pool as pgPool } from './config/postgres.js'; 
-import cookieParser from 'cookie-parser'; 
+import 'dotenv/config';
+import connectMongo from './config/mongodb.js';
+import { pool as pgPool } from './config/postgres.js';
+import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
-import errorHandler from './middleware/errorHandler.js'; 
+import errorHandler from './middleware/errorHandler.js';
 
 import testRoutes from './routes/testRoutes.js'
 import profileRoutes from './routes/profileRoutes.js';
@@ -15,16 +15,17 @@ import profileRoutes from './routes/profileRoutes.js';
 import attendanceRoutes from './routes/attendanceRoute.js'
 import assignRoutes from './routes/assignRoute.js'
 import driverRoutes from './routes/driverRoute.js'
-import parentRoutes from './routes/parentRoute.js'
+import parentRoutes from './routes/parentRoute.js';
+import dailyPresentRoutes from './routes/dailyPresentRoutes.js';
 
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Connect Mongodb Databases
-connectMongo(); 
+connectMongo();
 
-app.use(helmet()); 
+app.use(helmet());
 
 // Rate Limiting
 const limiter = rateLimit({
@@ -34,10 +35,10 @@ const limiter = rateLimit({
 app.use(limiter);
 
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' ? 'http://localhost:5173/' : '*',
+  origin: process.env.NODE_ENV === 'production' ? 'http://localhost:5173/' : '*',
 }));
 
-app.use(express.json()); 
+app.use(express.json());
 app.use(cookieParser());
 
 
@@ -52,12 +53,13 @@ app.use('/api/profile', profileRoutes);
 
 app.use('/api', testRoutes);
 
-app.use('/api/attendance',attendanceRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
-app.use('/api/assign',assignRoutes);
+app.use('/api/assign', assignRoutes);
 
-app.use('/api/driver',driverRoutes);
-app.use('/api/parent',parentRoutes);
+app.use('/api/driver', driverRoutes);
+app.use('/api/parent', parentRoutes);
+app.use('/api/daily-present', dailyPresentRoutes);
 
 app.use(errorHandler);
 
