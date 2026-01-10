@@ -11,22 +11,22 @@ export const createJti = () => crypto.randomBytes(16).toString('hex');
 //  Generate Access Token 
 export const signAccessToken = (user) => {
     // Payload includes: userId, role, issuedAt, expiresAt (iat and exp are automatically added)
-    const payload = { 
-        userId: user.id, 
-        role: user.role, 
+    const payload = {
+        userId: user.id,
+        role: user.role,
     };
-    return jwt.sign(payload, ACCESS_SECRET, { 
+    return jwt.sign(payload, ACCESS_SECRET, {
         expiresIn: process.env.ACCESS_TOKEN_TTL,
     });
 };
 
 // Generate Refresh Token 
 export const signRefreshToken = (user, jti) => {
-    const payload = { 
+    const payload = {
         userId: user.id,
-        jti: jti, 
+        jti: jti,
     };
-    return jwt.sign(payload, REFRESH_SECRET, { 
+    return jwt.sign(payload, REFRESH_SECRET, {
         expiresIn: REFRESH_TTL,
     });
 };
@@ -35,15 +35,15 @@ export const signRefreshToken = (user, jti) => {
 export const setRefreshCookie = (res, refreshToken) => {
     const isProd = process.env.NODE_ENV === 'production';
 
-    const maxAgeMs = 60 * 60 * 24 * 7 * 1000; 
+    const maxAgeMs = 60 * 60 * 24 * 7 * 1000;
 
     // Refresh token is stored in an HTTP-only, secure cookie
     res.cookie('refresh_token', refreshToken, {
         httpOnly: true, // Prevents client-side JavaScript access 
         secure: isProd, // Only send over HTTPS in production
-        sameSite: 'strict', // Protects against CSRF
-        path: '/api/auth/refresh', // Restrict cookie to refresh endpoint
-        maxAge: maxAgeMs, 
+        sameSite: isProd ? 'strict' : 'lax', // Use 'lax' in development for mobile compatibility
+        path: '/', // Allow cookie on all paths
+        maxAge: maxAgeMs,
     });
 };
 
