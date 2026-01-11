@@ -28,6 +28,15 @@ export const API_ENDPOINTS = {
   DRIVER_MODEL_STOP: '/driver-monitor/model/stop',
   DRIVER_MODEL_STATUS: '/driver-monitor/model/status',
 
+    // Window Safety endpoints
+  WINDOW_SAFETY_STATUS: '/window-safety/status',
+  WINDOW_SAFETY_ALERTS: '/window-safety/alerts',
+  WINDOW_SAFETY_STATS: '/window-safety/stats',
+  
+  // Window Model control endpoints
+  WINDOW_MODEL_START: '/window-safety/model/start',
+  WINDOW_MODEL_STOP: '/window-safety/model/stop',
+  WINDOW_MODEL_STATUS: '/window-safety/model/status',
 
 
 } as const;
