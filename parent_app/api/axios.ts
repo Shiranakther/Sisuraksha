@@ -8,7 +8,7 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
 }
 
 
-const BASE_URL = 'http://10.137.171.52:5000/api'; 
+const BASE_URL = 'http://192.168.43.30:5000/api';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -34,17 +34,17 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
       try {
         const response = await axios.post<{ token: string }>(
-          `${BASE_URL}${API_ENDPOINTS.REFRESH}`, 
-          {}, 
+          `${BASE_URL}${API_ENDPOINTS.REFRESH}`,
+          {},
           { withCredentials: true }
         );
-        
+
         const newToken = response.data.token;
         await tokenService.setAccessToken(newToken);
-        
+
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-        
+
         return apiClient(originalRequest);
       } catch (refreshError) {
         await tokenService.clearToken();

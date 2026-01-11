@@ -8,7 +8,7 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
 }
 
 
-const BASE_URL = 'http://192.168.51.84:5000/api';
+const BASE_URL = 'http://192.168.43.30:5000/api';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
