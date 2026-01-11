@@ -15,6 +15,8 @@ export default function TabLayout() {
       <Tabs.Screen name="driver-monitor" options={{ title: 'Monitor', tabBarIcon: ({ color }) => <Ionicons name="eye" size={24} color={color} /> }} />
       <Tabs.Screen name="safety" options={{ title: 'Safety', tabBarIcon: ({ color }) => <Ionicons name="shield-checkmark" size={24} color={color} /> }} />
       <Tabs.Screen name="window-safety" options={{ title: 'Window', tabBarIcon: ({ color }) => <Ionicons name="warning" size={24} color={color} /> }} />
+      <Tabs.Screen name="navigation" options={{ title: 'Navigate', tabBarIcon: ({ color }) => <Ionicons name="navigate" size={24} color={color} /> }} />
+      <Tabs.Screen name="door-control" options={{ title: 'Door', tabBarIcon: ({ color }) => <Ionicons name="exit" size={24} color={color} /> }} />
 
       {/* Hidden Tabs (Still in Layout) */}
       <Tabs.Screen name="driver" options={{ href: null }} />
