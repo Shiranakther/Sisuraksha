@@ -157,23 +157,27 @@ npx expo start
 | **T.A.P.K. Shameera** | IT22606624 | Behavior detection, fall detection, posture analysis, safety alerts, edge inference pipeline |
 
 
+## 📊 Used IOT Components
+
+| Member Name | Assigned Hardware / Components |
+|-------------|--------------------------------|
+| **Shiran** | ESP32 (with Built-in OLED)<br>PN532 NFC/RFID Module<br>NEO-6M GPS Module<br>MicroSD Card Adapter Module<br>Passive Buzzer |
+| **Kasun** | ESP32 Module<br>Raspberry Pi<br>Pressure Sensor<br>Vibration Sensor<br>Gyroscope<br>Piezo Set<br>MQ2 Smoke & Gas Sensor<br>Fire Sensor<br>Arduino Uno Board |
+| **Ishan** | Raspberry Pi<br>RPI NoIR Camera<br>ESP32-CAM Module<br>NEO-6M GPS or Ublox NEO-M8N GPS Module (SMA Connector – MD0895)<br>Passive Buzzer<br>Enclosures for Pi Board with Fans<br>SD Card for Pi Board<br>NodeMCU ESP32 WiFi Bluetooth Dual Mode IoT Dev Board (MD0245)<br>**E18-D80NK Infrared Proximity Sensor (Yellow, NPN-NO, with Cable)**<br>Small Speaker |
+| **Dilshan** | MPU6050<br>NEO-6M GPS Module<br>ESP32-S3 Microcontroller<br>Camera Module<br>Hall Effect Sensor<br>Fail-Safe Solenoid Deadbolt<br>Ultrasonic Sensors (HC-SR04 Type)<br>77GHz Millimeter-Wave Radar<br>Class 3R Green Laser Projectors (532nm)<br>Pneumatic Aspirator System<br>Directional Broadband Sounders<br>Floor Proximity LED Strips<br>Inertia Switch (Crash Sensor)<br>Pyrotechnic Disconnect Relay<br>Supercapacitors |
+
+
 ## 📊 Machine Learning Models
 ### 1. Behavior Monitoring Model  
-- CNN + Transformer hybrid  
-- Detects falls, unsafe movements, hand outside window  
-- Metrics: Precision, Recall, F1, Latency  
+- Student Behaviour - YOLO V8 s
 
 ### 2. Driver Vigilance Model  
-- Face detection + fatigue estimation  
+- Face detection - YOLO V8s
 - Phone-use/distraction detection  
 
 ### 3. Routing & Delay Prediction Model  
 - K-means clustering  
-- ETA prediction using Random Forest / LSTM  
-
-### 4. Anomaly Detection Model  
-- Fraudulent NFC patterns  
-- Unsafe route patterns  
+- Poliline Geo Routing
 
 ---
 
