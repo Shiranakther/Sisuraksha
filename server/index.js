@@ -19,6 +19,8 @@ import parentRoutes from './routes/parentRoute.js'
 import driverMonitorRoutes from './routes/driverMonitorRoutes.js'
 import safetyRoutes from './routes/safetyRoutes.js'
 
+import windowSafetyRoutes from './routes/windowSafetyRoutes.js';
+
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -75,6 +77,7 @@ app.use('/api/driver', driverRoutes);
 app.use('/api/parent', parentRoutes);
 app.use('/api/driver-monitor', driverMonitorRoutes);
 app.use('/api/safety', safetyRoutes);
+app.use('/api/window-safety', windowSafetyRoutes);
 
 app.use(errorHandler);
 
