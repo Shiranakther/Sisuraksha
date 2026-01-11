@@ -68,11 +68,16 @@ To develop an AI driven school transportation safety ecosystem that integrates s
 
 ---
 
-## 🏗️ System Architecture Diagram
+## 🏗️ ER Diagram
 
 
 <img width="1787" height="952" alt="er_diagram drawio" src="https://github.com/user-attachments/assets/a0458a52-f5e2-4f1e-99ad-869c30488723" />
 
+
+
+## 🏗️ System Architecture Diagram
+
+<img width="1417" height="1311" alt="system Diagram drawio" src="https://github.com/user-attachments/assets/1931db0d-d2a1-4af5-bc57-72ae9743190f" />
 
 Typical architecture layers:
 
