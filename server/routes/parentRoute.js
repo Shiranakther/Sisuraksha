@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerParentProfile,registerChild, getSchoolsForDropdown,getMyChildren,getParentAttendance } from '../controllers/parentController.js'; // Import the controller we created
+import { registerParentProfile, registerChild, getSchoolsForDropdown, getMyChildren, getParentAttendance, setAttendanceDeclaration, getAttendanceDeclaration } from '../controllers/parentController.js'; // Import the controller we created
 
 const router = express.Router();
 
@@ -48,7 +48,7 @@ router.post(
 router.get(
     '/my-children',
     authenticateToken,
-    authorizeRole([ROLES.PARENT]), 
+    authorizeRole([ROLES.PARENT]),
     getMyChildren
 );
 
@@ -57,6 +57,21 @@ router.get(
     authenticateToken,
     authorizeRole([ROLES.PARENT]), // Only parents can access
     getParentAttendance
+);
+
+// --- Attendance Declaration Routes ---
+router.post(
+    '/declare-attendance',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    setAttendanceDeclaration
+);
+
+router.get(
+    '/attendance-declaration/:childId',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    getAttendanceDeclaration
 );
 
 export default router;
