@@ -82,7 +82,6 @@ To develop an AI driven school transportation safety ecosystem that integrates s
 Typical architecture layers:
 
 1. **Edge Layer**  
-   Jetson Nano / Raspberry Pi  
    - In bus CV monitoring  
    - Driver monitoring  
    - NFC device integration  
@@ -192,12 +191,8 @@ The backend services, including the Node.js APIs, routing engine, and ML inferen
 
 ## 🧪 Dataset Details  
 - Student behavior dataset (video + annotation)  
-- Driver vigilance dataset  
-- Insurance OCR dataset  
-- GPS route history logs  
-- Attendance and delay logs  
-- All datasets anonymized
-- 
+- Driver vigilance dataset   
+  
 ---
 
 ## 📅 Research Timeline (1-Year Plan)
@@ -215,16 +210,6 @@ The backend services, including the Node.js APIs, routing engine, and ML inferen
 
 ---
 
-## 📄 Documentation  
-All research documents are stored in `/docs`:
-
-- Project Proposal  
-- Topic Assessment Form  
-- Research Log  
-- Mid Evaluation Report  
-- Final Report  
-- Architecture Diagrams  
-- Sprint Notes  
 
 ---
 
