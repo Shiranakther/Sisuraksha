@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "driver_app",
-    "slug": "driver_app",
+    "name": "parent_app",
+    "slug": "parent_app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "driverapp",
+    "scheme": "parentapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
