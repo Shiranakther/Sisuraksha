@@ -142,3 +142,95 @@ export const deletePhoneNumber = async (req, res, next) => {
         next(err);
     }
 };
+
+// --- Profile Management ---
+
+// Get User Profile
+export const getProfile = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const result = await pgPool.query(
+            'SELECT id, email, first_name, last_name, role, address, created_at FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (result.rowCount === 0) {
+            return next(new AppError('User not found.', 404));
+        }
+
+        res.status(200).json({
+            status: 'success',
+            data: result.rows[0]
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Update User Profile
+export const updateProfile = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { first_name, last_name, address } = req.body;
+
+        if (!first_name || !last_name) {
+            return next(new AppError('First and last name are required.', 400));
+        }
+
+        const result = await pgPool.query(
+            `
+            UPDATE users 
+            SET first_name = $1, last_name = $2, address = $3
+            WHERE id = $4
+            RETURNING id, email, first_name, last_name, role, address, created_at
+            `,
+            [first_name, last_name, address, userId]
+        );
+
+        if (result.rowCount === 0) {
+            return next(new AppError('User not found.', 404));
+        }
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Profile updated successfully.',
+            data: result.rows[0]
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Delete User Profile
+export const deleteProfile = async (req, res, next) => {
+    const client = await pgPool.connect();
+    try {
+        await client.query('BEGIN');
+        const userId = req.user.id;
+
+        // Delete user (Cascades should handle linked rows in 'parent' and 'refresh_tokens' depending on DB schema, 
+        // but explicit deletion of refresh_tokens is safe).
+        await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
+        const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING id', [userId]);
+
+        if (result.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return next(new AppError('User not found.', 404));
+        }
+
+        await client.query('COMMIT');
+        
+        // Clear auth cookie
+        res.clearCookie('refresh_token');
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Profile deleted successfully.'
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        next(err);
+    } finally {
+        client.release();
+    }
+};

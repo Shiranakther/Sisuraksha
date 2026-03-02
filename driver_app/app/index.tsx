@@ -6,8 +6,10 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker'; 
 import * as SecureStore from 'expo-secure-store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function DriverRegisterForm() {
+  const insets = useSafeAreaInsets();
   // User Info
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -107,7 +109,21 @@ function DriverRegisterForm() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-white" contentContainerStyle={{ padding: 24, paddingBottom: 50 }}>
+    <ScrollView 
+      className="flex-1 bg-white" 
+      contentContainerStyle={{ 
+        paddingHorizontal: 24, 
+        paddingTop: Math.max(insets.top, 20) + 24,
+        paddingBottom: Math.max(insets.bottom, 20) + 50 
+      }}
+    >
+      <View className="items-center mb-4">
+        <Image 
+          source={require('../assets/images/sisuraksha_logo.png')} 
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain" 
+        />
+      </View>
       <Text className="text-3xl font-bold text-center mb-2 text-slate-800">Driver Registration</Text>
       <Text className="text-slate-500 text-center mb-8">Register your bus and route</Text>
 

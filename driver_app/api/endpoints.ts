@@ -3,6 +3,12 @@ export const API_ENDPOINTS = {
   REGISTER: '/auth/register',
   LOGOUT: '/auth/logout',
   REFRESH: '/auth/refresh',
+  
+  // Driver Profile Endpoints
+  DRIVER_PROFILE_GET: '/driver/profile',
+  DRIVER_PROFILE_UPDATE: '/driver/profile',
+  DRIVER_PROFILE_DELETE: '/driver/profile',
+
   SCHOOLS: '/parent/schools',
   DRIVER_ATTENDANCE:'/driver/attendance',
   ALERTS: '/driver/alerts',

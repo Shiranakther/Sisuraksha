@@ -8,10 +8,32 @@ import {
     getMyLocation,
     addPhoneNumber,
     getMyPhoneNumbers,
-    deletePhoneNumber
+    deletePhoneNumber,
+    getProfile,
+    updateProfile,
+    deleteProfile
 } from '../controllers/profileController.js';
 
 const router = express.Router();
+
+// --- Profile Routes ---
+router.get(
+    '/',
+    authenticateToken,
+    getProfile
+);
+
+router.put(
+    '/',
+    authenticateToken,
+    updateProfile
+);
+
+router.delete(
+    '/',
+    authenticateToken,
+    deleteProfile
+);
 
 // Create or Update Location
 router.post(

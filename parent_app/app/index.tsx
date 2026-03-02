@@ -5,8 +5,10 @@ import { useRegister } from '../hooks/useApi';
 import { router } from 'expo-router';
 import { UserRole } from '../utils/types';
 import * as SecureStore from 'expo-secure-store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function RegisterForm() {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
@@ -45,8 +47,23 @@ function RegisterForm() {
 
   return (
     //  Changed View to ScrollView to handle keyboard covering inputs
-    <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} className="bg-white p-6">
-      
+    <ScrollView 
+      className="bg-white" 
+      contentContainerStyle={{ 
+        flexGrow: 1, 
+        justifyContent: 'center',
+        paddingHorizontal: 24, 
+        paddingTop: Math.max(insets.top, 20) + 24,
+        paddingBottom: Math.max(insets.bottom, 20) + 50
+      }}
+    >
+      <View className="items-center mb-4">
+        <Image 
+          source={require('../assets/images/sisuraksha_logo.png')} 
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain" 
+        />
+      </View>
       <Text className="text-3xl font-bold text-center mb-2 text-slate-800">
         Create Parent Account
       </Text>

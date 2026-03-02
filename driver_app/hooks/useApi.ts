@@ -202,3 +202,56 @@ export const useAttendanceAlerts = () => {
     refetchInterval: 30000, 
   });
 };
+
+// ==========================================
+// 3. DRIVER PROFILE HOOKS
+// ==========================================
+
+export const useDriverProfile = () => {
+  return useQuery({
+    queryKey: ['driverProfile'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.DRIVER_PROFILE_GET);
+      return data.data;
+    },
+  });
+};
+
+export const useUpdateDriverProfile = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (profileData: { first_name: string; last_name: string; address?: string; license_number?: string }) => {
+      const { data } = await apiClient.put(API_ENDPOINTS.DRIVER_PROFILE_UPDATE, profileData);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
+      Alert.alert('Success', 'Profile updated successfully!');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update profile');
+    },
+  });
+};
+
+export const useDeleteDriverProfile = () => {
+  const { signOut } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.delete(API_ENDPOINTS.DRIVER_PROFILE_DELETE);
+      return data;
+    },
+    onSuccess: () => {
+      signOut();
+      queryClient.clear();
+      router.replace('/'); // In Driver app, login is often at '/'
+      Alert.alert('Success', 'Your account has been deleted.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete account');
+    },
+  });
+};
