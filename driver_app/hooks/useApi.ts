@@ -114,15 +114,11 @@ export const useRegister = () => {
 export const useLogout = () => {
   const { signOut } = useAuth();
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async () => apiClient.post(API_ENDPOINTS.LOGOUT),
     onSettled: () => {
-      // 1. Clear Global State
       signOut();
-      // 2. Clear Data Cache (Prevents seeing old user data on relogin)
       queryClient.clear();
-      // 3. Force Navigation (Backup for Auth Guard)
       router.replace('/login');
     }
   });
