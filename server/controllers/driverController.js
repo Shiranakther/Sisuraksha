@@ -1,6 +1,7 @@
 import { pool as pgPool } from '../config/postgres.js';
 import axios from 'axios';
 import AppError from '../utils/appError.js'; 
+import fs from 'fs';
 
 export const registerDriverProfile = async (req, res, next) => {
     const { 
@@ -217,6 +218,7 @@ export const getAttendanceAlerts = async (req, res, next) => {
         });
 
     } catch (error) {
+        fs.appendFileSync('alerts_error.txt', error.stack + '\n');
         next(new AppError('Database error generating alerts', 500));
     }
 };
