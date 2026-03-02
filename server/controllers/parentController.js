@@ -1,5 +1,5 @@
 import { pool as pgPool } from '../config/postgres.js';
-import AppError from '../utils/appError.js'; 
+import AppError from '../utils/appError.js';
 
 export const registerParentProfile = async (req, res, next) => {
     const { user_id } = req.body;
@@ -17,7 +17,7 @@ export const registerParentProfile = async (req, res, next) => {
         //  Check for duplicate Parent Profile
         // we must manually check to prevent multiple parent profiles for the same user.
         const existingParent = await client.query(
-            'SELECT id FROM public.parent WHERE user_id = $1', 
+            'SELECT id FROM public.parent WHERE user_id = $1',
             [user_id]
         );
 
@@ -36,9 +36,9 @@ export const registerParentProfile = async (req, res, next) => {
         const newParent = parentResult.rows[0];
 
         await client.query('COMMIT');
-        
-        res.status(201).json({ 
-            success: true, 
+
+        res.status(201).json({
+            success: true,
             data: {
                 parentId: newParent.id,
                 userId: user_id,
@@ -85,7 +85,7 @@ export const getSchoolsForDropdown = async (req, res, next) => {
         res.status(200).json({
             status: 'success',
             results: result.rows.length,
-            data: result.rows 
+            data: result.rows
         });
     } catch (error) {
         next(new AppError('Database error fetching schools', 500));
@@ -110,7 +110,7 @@ export const registerChild = async (req, res, next) => {
         //  Find the correct 'parent_id' (bigint) for this user
         // The children table links to 'public.parent', not 'public.users'
         const parentRes = await client.query(
-            'SELECT id FROM public.parent WHERE user_id = $1', 
+            'SELECT id FROM public.parent WHERE user_id = $1',
             [user_uuid]
         );
 
@@ -131,10 +131,10 @@ export const registerChild = async (req, res, next) => {
             ) VALUES (gen_random_uuid(), $1, $2, $3) 
             RETURNING id, child_name, school_id, created_at;
         `;
-        
+
         const result = await client.query(insertQuery, [
-            child_name, 
-            parentId, 
+            child_name,
+            parentId,
             school_id
         ]);
 
@@ -150,7 +150,7 @@ export const registerChild = async (req, res, next) => {
         await client.query('ROLLBACK');
         // Handle constraint violations (e.g., if child somehow exists or school_id is invalid)
         if (error.code === '23503') { // Foreign key violation
-             return next(new AppError('Invalid School ID provided.', 400));
+            return next(new AppError('Invalid School ID provided.', 400));
         }
         next(error instanceof AppError ? error : new AppError(error.message, 500));
     } finally {
@@ -160,7 +160,7 @@ export const registerChild = async (req, res, next) => {
 
 
 export const getMyChildren = async (req, res, next) => {
-    const user_uuid = req.user.id; 
+    const user_uuid = req.user.id;
 
     try {
         //  Get Parent ID
@@ -200,7 +200,7 @@ export const getMyChildren = async (req, res, next) => {
 
 
 export const getParentAttendance = async (req, res, next) => {
-    const user_uuid = req.user.id; 
+    const user_uuid = req.user.id;
     const { childId, date } = req.query; // Optional filters
 
     try {
@@ -261,5 +261,137 @@ export const getParentAttendance = async (req, res, next) => {
 
     } catch (error) {
         next(new AppError('Database error fetching attendance', 500));
+    }
+};
+
+
+// ========== ATTENDANCE DECLARATION (Parent Pre-Declaration) ==========
+
+/**
+ * Set or Update Attendance Declaration for a Child
+ * POST /parent/declare-attendance
+ * Body: { childId, date?, morningPresent?, eveningPresent? }
+ */
+export const setAttendanceDeclaration = async (req, res, next) => {
+    const user_uuid = req.user.id;
+    const { childId, date, morningPresent, eveningPresent } = req.body;
+
+    if (!childId) {
+        return next(new AppError('childId is required', 400));
+    }
+
+    const targetDate = date || new Date().toISOString().split('T')[0]; // Default to today
+
+    const client = await pgPool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Verify parent owns this child
+        const parentRes = await client.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) {
+            throw new AppError('Parent profile not found.', 404);
+        }
+        const parentId = parentRes.rows[0].id;
+
+        const childCheck = await client.query(
+            'SELECT id FROM public.children WHERE id = $1 AND parent_id = $2',
+            [childId, parentId]
+        );
+        if (childCheck.rowCount === 0) {
+            throw new AppError('Child not found or does not belong to this parent.', 404);
+        }
+
+        // 2. Upsert attendance declaration
+        const upsertQuery = `
+            INSERT INTO public.attendance_declaration (child_id, date, morning_present, evening_present)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (child_id, date) 
+            DO UPDATE SET 
+                morning_present = COALESCE($3, attendance_declaration.morning_present),
+                evening_present = COALESCE($4, attendance_declaration.evening_present),
+                updated_at = NOW()
+            RETURNING *;
+        `;
+
+        const result = await client.query(upsertQuery, [
+            childId,
+            targetDate,
+            morningPresent !== undefined ? morningPresent : true,
+            eveningPresent !== undefined ? eveningPresent : true
+        ]);
+
+        await client.query('COMMIT');
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Attendance declaration updated',
+            data: result.rows[0]
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        next(error instanceof AppError ? error : new AppError(error.message, 500));
+    } finally {
+        client.release();
+    }
+};
+
+
+/**
+ * Get Attendance Declaration for a Child (for a specific date or today)
+ * GET /parent/attendance-declaration/:childId?date=YYYY-MM-DD
+ */
+export const getAttendanceDeclaration = async (req, res, next) => {
+    const user_uuid = req.user.id;
+    const { childId } = req.params;
+    const { date } = req.query;
+
+    if (!childId) {
+        return next(new AppError('childId is required', 400));
+    }
+
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    try {
+        // 1. Verify parent owns this child
+        const parentRes = await pgPool.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) {
+            return next(new AppError('Parent profile not found.', 404));
+        }
+        const parentId = parentRes.rows[0].id;
+
+        const childCheck = await pgPool.query(
+            'SELECT id, child_name FROM public.children WHERE id = $1 AND parent_id = $2',
+            [childId, parentId]
+        );
+        if (childCheck.rowCount === 0) {
+            return next(new AppError('Child not found or does not belong to this parent.', 404));
+        }
+
+        // 2. Get declaration
+        const result = await pgPool.query(
+            'SELECT * FROM public.attendance_declaration WHERE child_id = $1 AND date = $2',
+            [childId, targetDate]
+        );
+
+        // If no declaration exists, return defaults (both present)
+        const declaration = result.rows[0] || {
+            child_id: childId,
+            date: targetDate,
+            morning_present: true,
+            evening_present: true
+        };
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                ...declaration,
+                child_name: childCheck.rows[0].child_name
+            }
+        });
+
+    } catch (error) {
+        next(new AppError('Database error fetching declaration', 500));
     }
 };
