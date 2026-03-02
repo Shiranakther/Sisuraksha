@@ -15,6 +15,7 @@ function DriverRegisterForm() {
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   
   // Driver Info
   const [license, setLicense] = useState('');
@@ -63,7 +64,7 @@ function DriverRegisterForm() {
 
   const handleRegister = async () => {
     // 1. Validation
-    if (!email || !password || !firstName || !lastName || !license) {
+    if (!email || !password || !firstName || !lastName || !phoneNumber || !license) {
       Alert.alert('Missing Fields', 'Please fill in your personal details.');
       return;
     }
@@ -93,6 +94,7 @@ function DriverRegisterForm() {
       role: 'Driver',
       first_name: firstName,
       last_name: lastName,
+      phone_number: phoneNumber,
       license_number: license,
       
       // Start = Phone GPS
@@ -134,6 +136,7 @@ function DriverRegisterForm() {
           <TextInput placeholder="First Name" value={firstName} onChangeText={setFirstName} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4" />
           <TextInput placeholder="Last Name" value={lastName} onChangeText={setLastName} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4" />
         </View>
+        <TextInput placeholder="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" autoCapitalize="none" className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" />
         <TextInput placeholder="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" />
         <TextInput placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry className="bg-slate-50 border border-slate-200 rounded-xl p-4" />
       </View>

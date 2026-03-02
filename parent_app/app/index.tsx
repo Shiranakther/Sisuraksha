@@ -15,6 +15,7 @@ function RegisterForm() {
   //  New State Variables for required backend fields
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
 
   const role: UserRole = 'Parent';
 
@@ -22,7 +23,7 @@ function RegisterForm() {
 
   const handleRegister = () => {
     // 1. Validation: Check all fields
-    if (!email.trim() || !password.trim() || !firstName.trim() || !lastName.trim() ) {
+    if (!email.trim() || !password.trim() || !firstName.trim() || !lastName.trim() || !phoneNumber.trim()) {
       alert('All fields are required');
       return;
     }
@@ -33,6 +34,7 @@ function RegisterForm() {
       role,
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      phone_number: phoneNumber.trim(),
     });
 
     // 2. Send all data to mutation
@@ -41,7 +43,8 @@ function RegisterForm() {
       password,
       role,
       first_name: firstName.trim(),
-      last_name: lastName.trim()
+      last_name: lastName.trim(),
+      phone_number: phoneNumber.trim(),
     });
   };
 
@@ -95,6 +98,16 @@ function RegisterForm() {
         className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-base"
         autoCapitalize="none"
         keyboardType="email-address"
+      />
+
+      {/* --- Phone Number Field --- */}
+      <TextInput 
+        placeholder="Phone Number" 
+        value={phoneNumber} 
+        onChangeText={setPhoneNumber} 
+        className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-base"
+        autoCapitalize="none"
+        keyboardType="phone-pad"
       />
 
       {/* --- Password Field --- */}

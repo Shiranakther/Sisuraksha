@@ -150,7 +150,12 @@ export const getProfile = async (req, res, next) => {
     try {
         const userId = req.user.id;
         const result = await pgPool.query(
-            'SELECT id, email, first_name, last_name, role, address, created_at FROM users WHERE id = $1',
+            `
+            SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.address, u.created_at, m.phone_number 
+            FROM users u
+            LEFT JOIN mobile m ON u.id = m.user_id AND m.is_primary = true
+            WHERE u.id = $1
+            `,
             [userId]
         );
 
@@ -169,15 +174,17 @@ export const getProfile = async (req, res, next) => {
 
 // Update User Profile
 export const updateProfile = async (req, res, next) => {
+    const client = await pgPool.connect();
     try {
+        await client.query('BEGIN');
         const userId = req.user.id;
-        const { first_name, last_name, address } = req.body;
+        const { first_name, last_name, address, phone_number } = req.body;
 
         if (!first_name || !last_name) {
             return next(new AppError('First and last name are required.', 400));
         }
 
-        const result = await pgPool.query(
+        const result = await client.query(
             `
             UPDATE users 
             SET first_name = $1, last_name = $2, address = $3
@@ -188,16 +195,34 @@ export const updateProfile = async (req, res, next) => {
         );
 
         if (result.rowCount === 0) {
+            await client.query('ROLLBACK');
             return next(new AppError('User not found.', 404));
         }
+
+        if (phone_number !== undefined) {
+             const checkPhone = await client.query('SELECT id FROM mobile WHERE user_id = $1 AND is_primary = true', [userId]);
+             if (checkPhone.rowCount > 0) {
+                 await client.query('UPDATE mobile SET phone_number = $1 WHERE id = $2', [phone_number, checkPhone.rows[0].id]);
+             } else {
+                 await client.query('INSERT INTO mobile (user_id, phone_number, is_primary) VALUES ($1, $2, true)', [userId, phone_number]);
+             }
+        }
+
+        const updatedUser = result.rows[0];
+        updatedUser.phone_number = phone_number || updatedUser.phone_number;
+
+        await client.query('COMMIT');
 
         res.status(200).json({
             status: 'success',
             message: 'Profile updated successfully.',
-            data: result.rows[0]
+            data: updatedUser
         });
     } catch (err) {
+        await client.query('ROLLBACK');
         next(err);
+    } finally {
+        client.release();
     }
 };
 

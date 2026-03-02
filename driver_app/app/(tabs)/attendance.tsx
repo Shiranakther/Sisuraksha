@@ -124,7 +124,7 @@
 // }
 
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, Linking, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, Linking, Alert, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useDriverAttendance, useAttendanceAlerts } from '@/hooks/useApi'; // 👈 Added useAttendanceAlerts
 import DateTimePicker from '@react-native-community/datetimepicker'; 
@@ -134,6 +134,7 @@ export default function DriverAttendanceScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [sessionFilter, setSessionFilter] = useState('ALL'); // ALL, MORNING_PICKUP, MORNING_DROP, EVENING_PICKUP, EVENING_DROP
 
   // --- Data Fetching ---
   
@@ -143,6 +144,23 @@ export default function DriverAttendanceScreen() {
 
   // 2. Alerts (New - Fetches missing students for TODAY)
   const { data: missingStudents, isLoading: loadingAlerts, refetch: refetchAlerts } = useAttendanceAlerts();
+
+  // --- Derived Data ---
+  const stats = {
+    morningPickups: logs?.filter((l: any) => l.morning_pickup_time).length || 0,
+    morningDrops: logs?.filter((l: any) => l.morning_drop_time).length || 0,
+    eveningPickups: logs?.filter((l: any) => l.evening_pickup_time).length || 0,
+    eveningDrops: logs?.filter((l: any) => l.evening_drop_time).length || 0,
+  };
+
+  const displayedLogs = logs?.filter((log: any) => {
+    if (sessionFilter === 'ALL') return true;
+    if (sessionFilter === 'MORNING_PICKUP') return !!log.morning_pickup_time;
+    if (sessionFilter === 'MORNING_DROP') return !!log.morning_drop_time;
+    if (sessionFilter === 'EVENING_PICKUP') return !!log.evening_pickup_time;
+    if (sessionFilter === 'EVENING_DROP') return !!log.evening_drop_time;
+    return true;
+  });
 
   // --- Handlers ---
 
@@ -198,10 +216,14 @@ export default function DriverAttendanceScreen() {
 
   return (
     <View className="flex-1 bg-slate-50 pt-16 px-5">
-      <View className="mb-4">
-        <Text className="text-3xl font-bold text-slate-800">Attendance Log</Text>
-        <Text className="text-slate-500">Track student activity</Text>
-      </View>
+      <FlatList
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <>
+            <View className="mb-4 ">
+              <Text className="text-3xl font-bold text-slate-800 ">Attendance Log</Text>
+              <Text className="text-slate-500">Track student activity</Text>
+            </View>
 
       {/* 🚨 1. MISSING STUDENTS ALERT SECTION 🚨 */}
       {/* Only show if viewing TODAY's date */}
@@ -247,7 +269,27 @@ export default function DriverAttendanceScreen() {
         </View>
       )}
 
-      {/* --- 2. Controls Section (Search & Date) --- */}
+      {/* --- STATS CARDS --- */}
+      <View className="flex-row flex-wrap justify-between mb-4">
+        <View className="w-[48%] bg-white p-3 rounded-2xl shadow-sm border border-slate-100 mb-3">
+          <Text className="text-xs font-bold text-slate-400 uppercase">Morn Pickup</Text>
+          <Text className="text-2xl font-bold text-orange-600">{stats.morningPickups}</Text>
+        </View>
+        <View className="w-[48%] bg-white p-3 rounded-2xl shadow-sm border border-slate-100 mb-3">
+          <Text className="text-xs font-bold text-slate-400 uppercase">Morn Drop</Text>
+          <Text className="text-2xl font-bold text-emerald-600">{stats.morningDrops}</Text>
+        </View>
+        <View className="w-[48%] bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
+          <Text className="text-xs font-bold text-slate-400 uppercase">Eve Pickup</Text>
+          <Text className="text-2xl font-bold text-indigo-600">{stats.eveningPickups}</Text>
+        </View>
+        <View className="w-[48%] bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
+          <Text className="text-xs font-bold text-slate-400 uppercase">Eve Drop</Text>
+          <Text className="text-2xl font-bold text-purple-600">{stats.eveningDrops}</Text>
+        </View>
+      </View>
+
+      {/* --- 2. Controls Section (Search, Filter, Date) --- */}
       <View className="bg-white p-3 rounded-2xl shadow-sm mb-4">
         
         {/* Search Bar */}
@@ -260,6 +302,21 @@ export default function DriverAttendanceScreen() {
             onChangeText={setSearchQuery}
           />
         </View>
+
+        {/* Filters (Scrollable Pills) */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
+          {['ALL', 'MORNING_PICKUP', 'MORNING_DROP', 'EVENING_PICKUP', 'EVENING_DROP'].map((filter) => (
+            <TouchableOpacity 
+              key={filter}
+              onPress={() => setSessionFilter(filter)} 
+              className={`mr-2 px-3 py-1.5 rounded-full border ${sessionFilter === filter ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'}`}
+            >
+              <Text className={sessionFilter === filter ? 'text-white font-bold text-xs' : 'text-slate-600 text-xs'}>
+                {filter.replace('_', ' ')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {/* Date Picker Button */}
         <TouchableOpacity 
@@ -287,26 +344,25 @@ export default function DriverAttendanceScreen() {
           />
         )}
       </View>
-
-      {/* --- 3. Results List --- */}
-      {loadingLogs ? (
-        <ActivityIndicator size="large" color="#4F46E5" className="mt-10" />
-      ) : (
-        <FlatList
-          data={logs}
-          keyExtractor={(item) => item.attendance_id || Math.random().toString()}
-          renderItem={renderLogItem}
-          refreshing={loadingLogs}
-          onRefresh={handleRefresh}
-          contentContainerStyle={{ paddingBottom: 100 }}
-          ListEmptyComponent={
-            <View className="items-center mt-10">
-              <Ionicons name="document-text-outline" size={48} color="#cbd5e1" />
-              <Text className="text-slate-400 mt-2">No attendance records found.</Text>
-            </View>
-          }
-        />
-      )}
+      </>
+    }
+    data={loadingLogs ? [] : displayedLogs}
+      keyExtractor={(item) => item.attendance_id || Math.random().toString()}
+      renderItem={renderLogItem}
+      refreshing={loadingLogs}
+      onRefresh={handleRefresh}
+      contentContainerStyle={{ paddingBottom: 100 }}
+      ListEmptyComponent={
+        loadingLogs ? (
+          <ActivityIndicator size="large" color="#4F46E5" className="mt-10" />
+        ) : (
+          <View className="items-center mt-10">
+            <Ionicons name="document-text-outline" size={48} color="#cbd5e1" />
+            <Text className="text-slate-400 mt-2">No attendance records found.</Text>
+          </View>
+        )
+      }
+    />
     </View>
   );
 }

@@ -86,7 +86,7 @@ export const getAssignedChildren = async (req, res, next) => {
                 s.school_name,
                 u.first_name AS parent_first_name,
                 u.last_name AS parent_last_name,
-                m.phone_number AS parent_phone,
+                m.phone_number AS parent_phone, 
                 l.address AS pickup_address,
                 l.latitude AS pickup_lat,
                 l.longitude AS pickup_lon

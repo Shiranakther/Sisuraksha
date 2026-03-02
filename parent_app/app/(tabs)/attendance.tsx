@@ -510,7 +510,7 @@ export default function ParentAttendanceScreen() {
               <Text className="text-[10px] text-slate-400 uppercase">Pickup</Text>
               <Text className="text-sm font-bold text-slate-700">{item.morning_pickup_time || '--:--'}</Text>
             </View>
-            {item.morning_pickup_lat && (
+            {!!item.morning_pickup_lat && (
               <TouchableOpacity onPress={() => openMap(item.morning_pickup_lat, item.morning_pickup_lon)}>
                  <Ionicons name="location-sharp" size={20} color="#EA580C" />
               </TouchableOpacity>
@@ -523,7 +523,7 @@ export default function ParentAttendanceScreen() {
               <Text className="text-[10px] text-slate-400 uppercase">Drop</Text>
               <Text className="text-sm font-bold text-slate-700">{item.morning_drop_time || '--:--'}</Text>
             </View>
-            {item.morning_drop_lat && (
+            {!!item.morning_drop_lat && (
               <TouchableOpacity onPress={() => openMap(item.morning_drop_lat, item.morning_drop_lon)}>
                  <Ionicons name="location-sharp" size={20} color="#EA580C" />
               </TouchableOpacity>
@@ -544,7 +544,7 @@ export default function ParentAttendanceScreen() {
               <Text className="text-[10px] text-slate-400 uppercase">Pickup</Text>
               <Text className="text-sm font-bold text-slate-700">{item.evening_pickup_time || '--:--'}</Text>
             </View>
-             {item.evening_pickup_lat && (
+             {!!item.evening_pickup_lat && (
               <TouchableOpacity onPress={() => openMap(item.evening_pickup_lat, item.evening_pickup_lon)}>
                  <Ionicons name="location-sharp" size={20} color="#4F46E5" />
               </TouchableOpacity>
@@ -557,7 +557,7 @@ export default function ParentAttendanceScreen() {
               <Text className="text-[10px] text-slate-400 uppercase">Drop</Text>
               <Text className="text-sm font-bold text-slate-700">{item.evening_drop_time || '--:--'}</Text>
             </View>
-            {item.evening_drop_lat && (
+            {!!item.evening_drop_lat && (
               <TouchableOpacity onPress={() => openMap(item.evening_drop_lat, item.evening_drop_lon)}>
                  <Ionicons name="location-sharp" size={20} color="#4F46E5" />
               </TouchableOpacity>

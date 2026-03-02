@@ -15,7 +15,8 @@ export default function ProfileScreen() {
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
-    address: ''
+    address: '',
+    phone_number: ''
   });
 
   // Populate form when profile data loads
@@ -24,7 +25,8 @@ export default function ProfileScreen() {
       setFormData({
         first_name: profile.first_name || '',
         last_name: profile.last_name || '',
-        address: profile.address || ''
+        address: profile.address || '',
+        phone_number: profile.phone_number || ''
       });
     }
   }, [profile]);
@@ -126,6 +128,22 @@ export default function ProfileScreen() {
               />
             ) : (
               <Text className="text-base text-slate-800 ml-1 font-medium">{profile?.last_name}</Text>
+            )}
+          </View>
+
+          {/* Phone Number */}
+          <View className="mb-4">
+            <Text className="text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Phone Number</Text>
+            {isEditing ? (
+              <TextInput 
+                value={formData.phone_number}
+                onChangeText={(val) => setFormData({...formData, phone_number: val})}
+                keyboardType="phone-pad"
+                placeholder="Enter phone number"
+                className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-slate-800 font-medium"
+              />
+            ) : (
+              <Text className="text-base text-slate-800 ml-1 font-medium">{profile?.phone_number || 'No phone number provided'}</Text>
             )}
           </View>
 

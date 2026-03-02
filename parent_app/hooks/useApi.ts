@@ -30,7 +30,8 @@ export const useRegister = () => {
       password: string;
       role: UserRole;
       first_name: string;
-      last_name: string
+      last_name: string;
+      phone_number: string;
     }) => {
       const { data } = await apiClient.post(API_ENDPOINTS.REGISTER, creds);
       return data;
@@ -299,7 +300,7 @@ export const useUpdateProfile = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (profileData: { first_name: string; last_name: string; address?: string }) => {
+    mutationFn: async (profileData: { first_name: string; last_name: string; address?: string; phone_number?: string }) => {
       const { data } = await apiClient.put(API_ENDPOINTS.PROFILE_UPDATE, profileData);
       return data.data;
     },

@@ -60,6 +60,7 @@ interface RegisterPayload {
   role: UserRole;
   first_name: string;
   last_name: string;
+  phone_number?: string;
   address?: string;
   // Driver specific
   license_number?: string;
