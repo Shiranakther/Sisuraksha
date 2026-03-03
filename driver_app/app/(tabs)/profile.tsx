@@ -6,7 +6,11 @@ import { useAuth } from '../../auth/useAuth';
 import { 
   useDriverProfile, 
   useUpdateDriverProfile, 
-  useDeleteDriverProfile 
+  useDeleteDriverProfile,
+  useDriverVehicle,
+  useCreateVehicle,
+  useUpdateVehicle,
+  useDeleteVehicle
 } from '../../hooks/useApi';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -17,12 +21,25 @@ export default function DriverProfileScreen() {
   const updateMutation = useUpdateDriverProfile();
   const deleteMutation = useDeleteDriverProfile();
 
+  // Vehicle hooks
+  const { data: vehicle, isLoading: vehicleLoading } = useDriverVehicle();
+  const createVehicleMutation = useCreateVehicle();
+  const updateVehicleMutation = useUpdateVehicle();
+  const deleteVehicleMutation = useDeleteVehicle();
+
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
     address: '',
     license_number: '',
+  });
+
+  // Vehicle form state
+  const [isVehicleEditing, setIsVehicleEditing] = useState(false);
+  const [vehicleForm, setVehicleForm] = useState({
+    vehicle_number: '',
+    capacity: '',
   });
 
   // Sync form data when profile is pulled
@@ -36,6 +53,16 @@ export default function DriverProfileScreen() {
       });
     }
   }, [profile, isEditing]);
+
+  // Sync vehicle form when vehicle data loads
+  useEffect(() => {
+    if (vehicle && !isVehicleEditing) {
+      setVehicleForm({
+        vehicle_number: vehicle.vehicle_number || '',
+        capacity: vehicle.capacity?.toString() || '',
+      });
+    }
+  }, [vehicle, isVehicleEditing]);
 
   const handleSave = () => {
     if (!formData.first_name || !formData.last_name) {
@@ -61,6 +88,53 @@ export default function DriverProfileScreen() {
       ]
     );
   };
+
+  // Vehicle handlers
+  const handleVehicleSave = () => {
+    if (!vehicleForm.vehicle_number.trim()) {
+      Alert.alert("Validation Error", "Vehicle number is required.");
+      return;
+    }
+
+    const payload = {
+      vehicle_number: vehicleForm.vehicle_number.trim(),
+      capacity: vehicleForm.capacity ? parseInt(vehicleForm.capacity, 10) : 0,
+    };
+
+    if (vehicle) {
+      // Update existing vehicle
+      updateVehicleMutation.mutate(payload, {
+        onSuccess: () => setIsVehicleEditing(false)
+      });
+    } else {
+      // Create new vehicle
+      createVehicleMutation.mutate(payload, {
+        onSuccess: () => setIsVehicleEditing(false)
+      });
+    }
+  };
+
+  const handleVehicleDelete = () => {
+    Alert.alert(
+      "Remove Vehicle",
+      "Are you sure you want to remove this vehicle? You can register a new one later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          style: "destructive", 
+          onPress: () => deleteVehicleMutation.mutate(undefined, {
+            onSuccess: () => {
+              setIsVehicleEditing(false);
+              setVehicleForm({ vehicle_number: '', capacity: '' });
+            }
+          })
+        }
+      ]
+    );
+  };
+
+  const isVehicleSaving = createVehicleMutation.isPending || updateVehicleMutation.isPending;
 
   if (isLoading) {
     return (
@@ -193,22 +267,148 @@ export default function DriverProfileScreen() {
           </View>
         </View>
 
-        {/* Assigned Vehicle Card (Read Only) */}
-        {!isEditing && (
-          <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-8">
-            <View className="flex-row items-center justify-between">
-              <View>
-                <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned Vehicle</Text>
-                <Text className="text-lg font-bold text-slate-800">
-                  {profile.vehicle_number || "No Vehicle Assigned"}
-                </Text>
+        {/* ==========================================
+            VEHICLE MANAGEMENT CARD
+        ========================================== */}
+        <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
+          <View className="flex-row items-center justify-between mb-4">
+            <View className="flex-row items-center">
+              <View className="w-10 h-10 bg-orange-50 rounded-full items-center justify-center mr-3">
+                <Ionicons name="bus" size={20} color="#EA580C" />
               </View>
-              <View className="w-12 h-12 bg-orange-50 rounded-full items-center justify-center">
-                <Ionicons name="bus" size={24} color="#EA580C" />
+              <Text className="text-lg font-bold text-slate-800">My Vehicle</Text>
+            </View>
+            
+            {/* Edit/Add toggle button */}
+            {!isVehicleEditing && (
+              <TouchableOpacity 
+                onPress={() => setIsVehicleEditing(true)}
+              >
+                <Text className="font-bold text-base text-orange-600">
+                  {vehicle ? 'Edit' : 'Add'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {isVehicleEditing && (
+              <View className="flex-row items-center gap-3">
+                <TouchableOpacity 
+                  onPress={() => {
+                    setIsVehicleEditing(false);
+                    // Reset form to existing vehicle data
+                    if (vehicle) {
+                      setVehicleForm({
+                        vehicle_number: vehicle.vehicle_number || '',
+                        capacity: vehicle.capacity?.toString() || '',
+                      });
+                    } else {
+                      setVehicleForm({ vehicle_number: '', capacity: '' });
+                    }
+                  }}
+                >
+                  <Text className="font-bold text-base text-slate-400">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={handleVehicleSave}
+                  disabled={isVehicleSaving}
+                >
+                  {isVehicleSaving ? (
+                    <ActivityIndicator size="small" color="#16A34A" />
+                  ) : (
+                    <Text className="font-bold text-base text-green-600">Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {vehicleLoading ? (
+            <ActivityIndicator size="small" color="#EA580C" />
+          ) : isVehicleEditing ? (
+            /* ---------- EDITING / CREATING FORM ---------- */
+            <View className="space-y-4">
+              <View className="mb-4">
+                <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Vehicle Number *</Text>
+                <TextInput
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800"
+                  value={vehicleForm.vehicle_number}
+                  onChangeText={(t) => setVehicleForm({...vehicleForm, vehicle_number: t})}
+                  placeholder="e.g. WP-ABC-1234"
+                  placeholderTextColor="#94A3B8"
+                  autoCapitalize="characters"
+                />
+              </View>
+              <View className="mb-4">
+                <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Seating Capacity</Text>
+                <TextInput
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800"
+                  value={vehicleForm.capacity}
+                  onChangeText={(t) => setVehicleForm({...vehicleForm, capacity: t.replace(/[^0-9]/g, '')})}
+                  placeholder="e.g. 40"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="numeric"
+                />
+              </View>
+
+              {/* Delete Vehicle Button (only if vehicle already exists) */}
+              {vehicle && (
+                <TouchableOpacity 
+                  onPress={handleVehicleDelete}
+                  disabled={deleteVehicleMutation.isPending}
+                  className="flex-row items-center justify-center border border-red-200 bg-red-50 py-3 rounded-xl mt-2"
+                >
+                  {deleteVehicleMutation.isPending ? (
+                    <ActivityIndicator color="#EF4444" />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+                      <Text className="text-red-600 font-bold text-sm">Remove Vehicle</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : vehicle ? (
+            /* ---------- DISPLAY VIEW (Vehicle Exists) ---------- */
+            <View>
+              <View className="flex-row items-center justify-between mb-3 pb-3 border-b border-slate-100">
+                <View>
+                  <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Vehicle Number</Text>
+                  <Text className="text-lg font-bold text-slate-800">{vehicle.vehicle_number}</Text>
+                </View>
+                <View className={`px-3 py-1 rounded-full ${vehicle.is_verified ? 'bg-green-100' : 'bg-amber-100'}`}>
+                  <Text className={`text-xs font-bold ${vehicle.is_verified ? 'text-green-700' : 'text-amber-700'}`}>
+                    {vehicle.is_verified ? 'Verified' : 'Pending'}
+                  </Text>
+                </View>
+              </View>
+              <View className="flex-row">
+                <View className="flex-1">
+                  <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Capacity</Text>
+                  <Text className="text-base text-slate-800">{vehicle.capacity || '0'} seats</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</Text>
+                  <Text className={`text-base font-medium ${vehicle.is_active ? 'text-green-600' : 'text-red-500'}`}>
+                    {vehicle.is_active ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
-        )}
+          ) : (
+            /* ---------- NO VEHICLE REGISTERED ---------- */
+            <View className="items-center py-4">
+              <Ionicons name="bus-outline" size={40} color="#CBD5E1" />
+              <Text className="text-slate-400 text-sm mt-2 text-center">No vehicle registered yet.</Text>
+              <TouchableOpacity
+                onPress={() => setIsVehicleEditing(true)}
+                className="mt-4 bg-orange-600 px-6 py-3 rounded-xl flex-row items-center"
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text className="text-white font-bold">Register Vehicle</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
 
         {/* Danger Zone */}
         {isEditing && (

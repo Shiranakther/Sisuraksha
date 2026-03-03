@@ -252,3 +252,74 @@ export const useDeleteDriverProfile = () => {
     },
   });
 };
+
+// ==========================================
+// 4. VEHICLE MANAGEMENT HOOKS
+// ==========================================
+
+export const useDriverVehicle = () => {
+  return useQuery({
+    queryKey: ['driverVehicle'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.VEHICLE_GET);
+      return data.data; // Returns vehicle object or null
+    },
+  });
+};
+
+export const useCreateVehicle = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vehicleData: { vehicle_number: string; capacity?: number }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.VEHICLE_CREATE, vehicleData);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driverVehicle'] });
+      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
+      Alert.alert('Success', 'Vehicle registered successfully!');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to register vehicle');
+    },
+  });
+};
+
+export const useUpdateVehicle = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vehicleData: { vehicle_number: string; capacity?: number }) => {
+      const { data } = await apiClient.put(API_ENDPOINTS.VEHICLE_UPDATE, vehicleData);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driverVehicle'] });
+      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
+      Alert.alert('Success', 'Vehicle updated successfully!');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update vehicle');
+    },
+  });
+};
+
+export const useDeleteVehicle = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.delete(API_ENDPOINTS.VEHICLE_DELETE);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driverVehicle'] });
+      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
+      Alert.alert('Success', 'Vehicle removed successfully.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete vehicle');
+    },
+  });
+};
