@@ -13,6 +13,12 @@ export const API_ENDPOINTS = {
   DRIVER_ATTENDANCE:'/driver/attendance',
   ALERTS: '/driver/alerts',
 
+  // Vehicle Management Endpoints
+  VEHICLE_GET: '/driver/vehicle',
+  VEHICLE_CREATE: '/driver/vehicle',
+  VEHICLE_UPDATE: '/driver/vehicle',
+  VEHICLE_DELETE: '/driver/vehicle',
+
  // Footboard Safety endpoints
   SAFETY_STATUS: '/safety/status',
   SAFETY_ALERTS: '/safety/alerts',
