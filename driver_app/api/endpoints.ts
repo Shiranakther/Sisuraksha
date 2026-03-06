@@ -50,5 +50,8 @@ export const API_ENDPOINTS = {
   WINDOW_MODEL_STOP: '/window-safety/model/stop',
   WINDOW_MODEL_STATUS: '/window-safety/model/status',
 
+    // Face Recognition
+  FACE_VERIFY: '/face/verify',
+  FACE_SERVICE_STATUS: '/face/service/status',
 
 } as const;

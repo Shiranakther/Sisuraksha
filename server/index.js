@@ -20,6 +20,7 @@ import driverMonitorRoutes from './routes/driverMonitorRoutes.js'
 import safetyRoutes from './routes/safetyRoutes.js'
 
 import windowSafetyRoutes from './routes/windowSafetyRoutes.js';
+import faceRecognitionRoutes from './routes/faceRecognitionRoutes.js';
 
 
 const app = express();
@@ -78,6 +79,7 @@ app.use('/api/parent', parentRoutes);
 app.use('/api/driver-monitor', driverMonitorRoutes);
 app.use('/api/safety', safetyRoutes);
 app.use('/api/window-safety', windowSafetyRoutes);
+app.use('/api/face', faceRecognitionRoutes);
 
 app.use(errorHandler);
 

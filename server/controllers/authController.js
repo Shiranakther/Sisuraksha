@@ -1,6 +1,6 @@
 
 import bcrypt from 'bcryptjs';
-import { pool as pgPool } from '../config/postgres.js';
+import { pool as pgPool, queryWithRetry } from '../config/postgres.js';
 import { signAccessToken, signRefreshToken, setRefreshCookie, createJti, hashToken } from '../utils/auth.js';
 import AppError from '../utils/appError.js';
 import axios from 'axios';
@@ -170,45 +170,53 @@ export const login = async (req, res, next) => {
         return next(new AppError('Email and password are required.', 400));
     }
 
-    // Find user by email
-    const userResult = await pgPool.query(
-        'SELECT id, email, password_hash, role FROM users WHERE email = $1 AND is_active = TRUE',
-        [email]
-    );
+    try {
+        // Find user by email (retries once on transient connection errors)
+        const userResult = await queryWithRetry(
+            'SELECT id, email, password_hash, role FROM users WHERE email = $1 AND is_active = TRUE',
+            [email]
+        );
 
-    const user = userResult.rows[0];
-    if (!user) {
-        
-        return next(new AppError('Invalid credentials. User not found', 401)); 
+        const user = userResult.rows[0];
+        if (!user) {
+            return next(new AppError('Invalid credentials. User not found', 401));
+        }
+
+        // Validate credentials
+        const passwordMatch = await bcrypt.compare(password, user.password_hash);
+        if (!passwordMatch) {
+            return next(new AppError('Wrong Password ', 401));
+        }
+
+        // Generate tokens
+        const jti = createJti();
+        const accessToken = signAccessToken(user);
+        const refreshToken = signRefreshToken(user, jti);
+
+        // Store refresh token hash in DB for revocation
+        const hashedToken = hashToken(refreshToken);
+        await queryWithRetry(
+            'INSERT INTO refresh_tokens (user_id, token_hash, jti, expires_at) VALUES ($1, $2, $3, NOW() + $4::interval)',
+            [user.id, hashedToken, jti, process.env.REFRESH_TOKEN_TTL]
+        );
+
+        // Send tokens to client
+        setRefreshCookie(res, refreshToken);
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Login successful.',
+            token: accessToken,
+            data: { userId: user.id, role: user.role }
+        });
+    } catch (err) {
+        const isConnErr = err.message?.includes('Connection terminated');
+        if (isConnErr) {
+            console.error('[login] DB connection error:', err.message);
+            return next(new AppError('Database connection error. Please try again.', 503));
+        }
+        return next(err);
     }
-
-    // Validate credentials
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-    if (!passwordMatch) {
-        return next(new AppError('Wrong Password ', 401));
-    }
-
-    // Generate tokens 
-    const jti = createJti();
-    const accessToken = signAccessToken(user);
-    const refreshToken = signRefreshToken(user, jti);
-    
-    // Store refresh token hash in DB for revocation 
-    const hashedToken = hashToken(refreshToken);
-    await pgPool.query(
-  'INSERT INTO refresh_tokens (user_id, token_hash, jti, expires_at) VALUES ($1, $2, $3, NOW() + $4::interval)',
-          [user.id, hashedToken, jti, process.env.REFRESH_TOKEN_TTL] 
-    );
-
-    // Send tokens to client 
-    setRefreshCookie(res, refreshToken);
-    
-    res.status(200).json({
-        status: 'success',
-        message: 'Login successful.',
-        token: accessToken, 
-        data: { userId: user.id, role: user.role }
-    });
 };
 
 

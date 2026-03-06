@@ -1,0 +1,9 @@
+flask==3.1.0
+flask-cors==5.0.1
+opencv-python-headless==4.10.0.84
+keras-facenet==0.3.2
+numpy==1.26.4
+scipy==1.14.1
+mtcnn==1.0.0
+tensorflow==2.16.2
+requests==2.32.3

@@ -56,7 +56,7 @@ export default function HomeScreen() {
   return (
     <View className="flex-1 bg-slate-50">
       {/* Header Container */}
-      <View 
+      <View
         className="px-6 pb-4 flex-row justify-between items-center bg-white shadow-sm border-b border-slate-100 z-10"
         style={{ paddingTop: Math.max(insets.top, 20) + 16 }}
       >
@@ -65,12 +65,12 @@ export default function HomeScreen() {
             Dashboard
           </Text>
           <Text className="text-2xl font-bold text-slate-800">
-             {isLoadingProfile ? 'Loading...' : `Welcome back, ${profile?.first_name || 'Parent'}`}
+            {isLoadingProfile ? 'Loading...' : `Welcome back, ${profile?.first_name || 'Parent'}`}
           </Text>
         </View>
-        
+
         {/* Profile Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => router.push('/(tabs)/profile')}
           className="w-12 h-12 bg-blue-50 rounded-full items-center justify-center border border-blue-100"
         >
@@ -79,29 +79,40 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView className="flex-1 px-6 pt-6" contentContainerStyle={{ paddingBottom: 100 }}>
-        
+
         {/* --- Quick Actions Grid --- */}
         <Text className="text-slate-800 font-bold mb-4 text-lg">Quick Actions</Text>
-        <View className="flex-row justify-between mb-8 gap-4">
-          
+        <View className="flex-row flex-wrap justify-between mb-8 gap-4">
+
           <TouchableOpacity
             onPress={() => router.push('/(tabs)/parent')}
-            className="flex-1 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
+            className="w-[47%] bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
           >
-             <View className="bg-green-100 w-14 h-14 rounded-full items-center justify-center mb-3">
-               <Ionicons name="people" size={28} color="#16A34A" />
-             </View>
-             <Text className="text-base font-bold text-slate-800 text-center">Track Children</Text>
+            <View className="bg-green-100 w-14 h-14 rounded-full items-center justify-center mb-3">
+              <Ionicons name="people" size={28} color="#16A34A" />
+            </View>
+            <Text className="text-base font-bold text-slate-800 text-center">Track Children</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => router.push('/(tabs)/assign_bus')}
-            className="flex-1 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
+            className="w-[47%] bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
           >
-             <View className="bg-orange-100 w-14 h-14 rounded-full items-center justify-center mb-3">
-               <Ionicons name="bus" size={28} color="#F59E0B" />
-             </View>
-             <Text className="text-base font-bold text-slate-800 text-center">Find Bus</Text>
+            <View className="bg-orange-100 w-14 h-14 rounded-full items-center justify-center mb-3">
+              <Ionicons name="bus" size={28} color="#F59E0B" />
+            </View>
+            <Text className="text-base font-bold text-slate-800 text-center">Find Bus</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/parent')}
+            className="w-[47%] bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
+          >
+            <View className="bg-blue-100 w-14 h-14 rounded-full items-center justify-center mb-3">
+              <Ionicons name="camera" size={28} color="#3B82F6" />
+            </View>
+            <Text className="text-base font-bold text-slate-800 text-center">Face ID</Text>
+            <Text className="text-xs text-slate-400 text-center mt-1">Register face</Text>
           </TouchableOpacity>
 
         </View>
