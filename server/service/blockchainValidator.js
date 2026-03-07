@@ -23,8 +23,12 @@ export const runFullAudit = async () => {
     let report = {
         isValid: true,
         totalBlocks: logs.length,
-        errors: []
+        errors: [],
+        validBlocks: []
     };
+    
+    // Track broken indices
+    const invalidIndices = new Set();
 
     for (let i = 0; i < logs.length; i++) {
         const currentBlock = logs[i];
@@ -33,6 +37,7 @@ export const runFullAudit = async () => {
         const recalculatedHash = calculateBlockHash(currentBlock);
         if (recalculatedHash !== currentBlock.hash) {
             report.isValid = false;
+            invalidIndices.add(i);
             report.errors.push({
                 index: i,
                 blockId: currentBlock._id,
@@ -46,6 +51,7 @@ export const runFullAudit = async () => {
             const previousBlock = logs[i - 1];
             if (currentBlock.previousHash !== previousBlock.hash) {
                 report.isValid = false;
+                invalidIndices.add(i);
                 report.errors.push({
                     index: i,
                     blockId: currentBlock._id,
@@ -53,6 +59,13 @@ export const runFullAudit = async () => {
                     message: `Block ${i} link to previous block is broken. Records might have been deleted.`
                 });
             }
+        }
+    }
+
+    // Populate validBlocks only with blocks that don't have errors
+    for (let i = 0; i < logs.length; i++) {
+        if (!invalidIndices.has(i)) {
+            report.validBlocks.push(logs[i]);
         }
     }
 
