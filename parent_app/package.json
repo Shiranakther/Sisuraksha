@@ -20,10 +20,12 @@
     "@tanstack/react-query": "^5.90.12",
     "axios": "^1.13.2",
     "expo": "~54.0.25",
+    "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.11",
     "expo-font": "~14.0.9",
     "expo-haptics": "~15.0.7",
     "expo-image": "~3.0.10",
+    "expo-image-manipulator": "~14.0.8",
     "expo-linking": "~8.0.10",
     "expo-location": "~19.0.8",
     "expo-router": "~6.0.17",
@@ -57,4 +59,3 @@
   },
   "private": true
 }
-
