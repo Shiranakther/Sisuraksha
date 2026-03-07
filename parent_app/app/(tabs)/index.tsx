@@ -205,7 +205,7 @@ function ChildCardWithFace({ child, onRegisterFace, deleteFace }: { child: any; 
         >
           <Ionicons name="camera" size={16} color="white" />
           <Text className="text-white font-bold text-sm ml-2">
-            {faceData?.is_face_registered ? 'Re-register Face' : '📷 Register Face'}
+            {faceData?.is_face_registered ? 'Re-register Face' : ' Register Face'}
           </Text>
         </TouchableOpacity>
 

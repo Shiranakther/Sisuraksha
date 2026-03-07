@@ -321,21 +321,34 @@ export default function DriverAttendanceScreen() {
         <Text className="text-slate-500">Scan faces or view attendance log</Text>
       </View>
 
-      {/* ---- Tab Switcher ---- */}
-      <View className="flex-row bg-slate-200 rounded-xl p-1 mb-4">
+      {/* ---- Navigation Buttons ---- */}
+      <View className="flex-row justify-between mb-4" style={{ gap: 12 }}>
         <TouchableOpacity
           onPress={() => setActiveTab('scan')}
-          className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${activeTab === 'scan' ? 'bg-white shadow-sm' : ''}`}
+          className={`flex-1 py-3 rounded-xl items-center flex-row justify-center shadow-sm ${
+            activeTab === 'scan' 
+              ? 'bg-indigo-600' 
+              : 'bg-white border border-slate-200'
+          }`}
         >
-          <Ionicons name="scan" size={16} color={activeTab === 'scan' ? '#4F46E5' : '#94a3b8'} />
-          <Text className={`ml-1 font-bold text-sm ${activeTab === 'scan' ? 'text-indigo-600' : 'text-slate-400'}`}>Face Scan</Text>
+          <Ionicons name="scan" size={18} color={activeTab === 'scan' ? 'white' : '#64748b'} />
+          <Text className={`ml-2 font-bold text-sm ${activeTab === 'scan' ? 'text-white' : 'text-slate-600'}`}>
+            Face Scan
+          </Text>
         </TouchableOpacity>
+
         <TouchableOpacity
           onPress={() => setActiveTab('log')}
-          className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${activeTab === 'log' ? 'bg-white shadow-sm' : ''}`}
+          className={`flex-1 py-3 rounded-xl items-center flex-row justify-center shadow-sm ${
+            activeTab === 'log' 
+              ? 'bg-indigo-600' 
+              : 'bg-white border border-slate-200'
+          }`}
         >
-          <Ionicons name="list" size={16} color={activeTab === 'log' ? '#4F46E5' : '#94a3b8'} />
-          <Text className={`ml-1 font-bold text-sm ${activeTab === 'log' ? 'text-indigo-600' : 'text-slate-400'}`}>Attendance Log</Text>
+          <Ionicons name="list" size={18} color={activeTab === 'log' ? 'white' : '#64748b'} />
+          <Text className={`ml-2 font-bold text-sm ${activeTab === 'log' ? 'text-white' : 'text-slate-600'}`}>
+            Attendance Log
+          </Text>
         </TouchableOpacity>
       </View>
 
