@@ -30,7 +30,8 @@ export const useRegister = () => {
       password: string;
       role: UserRole;
       first_name: string;
-      last_name: string
+      last_name: string;
+      phone_number: string;
     }) => {
       const { data } = await apiClient.post(API_ENDPOINTS.REGISTER, creds);
       return data;
@@ -279,5 +280,58 @@ export const useAllChildrenDeclarations = () => {
       return declarations;
     },
     enabled: !!children && children.length > 0,
+  });
+};
+
+
+// ========== PROFILE MANAGEMENT HOOKS ==========
+
+export const useProfile = () => {
+  return useQuery({
+    queryKey: ['myProfile'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.PROFILE_GET);
+      return data.data;
+    },
+  });
+};
+
+export const useUpdateProfile = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (profileData: { first_name: string; last_name: string; address?: string; phone_number?: string }) => {
+      const { data } = await apiClient.put(API_ENDPOINTS.PROFILE_UPDATE, profileData);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myProfile'] });
+      Alert.alert('Success', 'Profile updated successfully!');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update profile');
+    },
+  });
+};
+
+export const useDeleteProfile = () => {
+  const { signOut } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.delete(API_ENDPOINTS.PROFILE_DELETE);
+      return data;
+    },
+    onSuccess: () => {
+      // Clear local state and navigate to login
+      signOut();
+      queryClient.clear();
+      router.replace('/login');
+      Alert.alert('Success', 'Your account has been deleted.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete account');
+    },
   });
 };

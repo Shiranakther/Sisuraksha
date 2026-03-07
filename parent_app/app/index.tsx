@@ -5,14 +5,17 @@ import { useRegister } from '../hooks/useApi';
 import { router } from 'expo-router';
 import { UserRole } from '../utils/types';
 import * as SecureStore from 'expo-secure-store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function RegisterForm() {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
   //  New State Variables for required backend fields
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
 
   const role: UserRole = 'Parent';
 
@@ -20,7 +23,7 @@ function RegisterForm() {
 
   const handleRegister = () => {
     // 1. Validation: Check all fields
-    if (!email.trim() || !password.trim() || !firstName.trim() || !lastName.trim() ) {
+    if (!email.trim() || !password.trim() || !firstName.trim() || !lastName.trim() || !phoneNumber.trim()) {
       alert('All fields are required');
       return;
     }
@@ -31,6 +34,7 @@ function RegisterForm() {
       role,
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      phone_number: phoneNumber.trim(),
     });
 
     // 2. Send all data to mutation
@@ -39,14 +43,30 @@ function RegisterForm() {
       password,
       role,
       first_name: firstName.trim(),
-      last_name: lastName.trim()
+      last_name: lastName.trim(),
+      phone_number: phoneNumber.trim(),
     });
   };
 
   return (
     //  Changed View to ScrollView to handle keyboard covering inputs
-    <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} className="bg-white p-6">
-      
+    <ScrollView 
+      className="bg-white" 
+      contentContainerStyle={{ 
+        flexGrow: 1, 
+        justifyContent: 'center',
+        paddingHorizontal: 24, 
+        paddingTop: Math.max(insets.top, 20) + 24,
+        paddingBottom: Math.max(insets.bottom, 20) + 50
+      }}
+    >
+      <View className="items-center mb-4">
+        <Image 
+          source={require('../assets/images/sisuraksha_logo.png')} 
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain" 
+        />
+      </View>
       <Text className="text-3xl font-bold text-center mb-2 text-slate-800">
         Create Parent Account
       </Text>
@@ -78,6 +98,16 @@ function RegisterForm() {
         className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-base"
         autoCapitalize="none"
         keyboardType="email-address"
+      />
+
+      {/* --- Phone Number Field --- */}
+      <TextInput 
+        placeholder="Phone Number" 
+        value={phoneNumber} 
+        onChangeText={setPhoneNumber} 
+        className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-base"
+        autoCapitalize="none"
+        keyboardType="phone-pad"
       />
 
       {/* --- Password Field --- */}

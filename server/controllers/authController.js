@@ -69,7 +69,7 @@ const saltRounds = 10;
 export const register = async (req, res, next) => {
     // 1. Destructure ALL possible fields (User + Driver)
     const { 
-        email, password, role, first_name, last_name, address, // User fields
+        email, password, role, first_name, last_name, address, phone_number, // User fields
         license_number, trip_start_lat, trip_start_lon, trip_end_lat, trip_end_lon, school_ids // Driver fields
     } = req.body;
 
@@ -91,6 +91,14 @@ export const register = async (req, res, next) => {
             [email, passwordHash, role, first_name, last_name, address]
         );
         const user = userResult.rows[0];
+
+        // --- A.1 Add Mobile Number ---
+        if (phone_number) {
+            await client.query(
+                `INSERT INTO public.mobile (user_id, phone_number, is_primary) VALUES ($1, $2, $3)`,
+                [user.id, phone_number, true]
+            );
+        }
 
         // --- B. Handle PARENT Role ---
         if (role === 'Parent') {

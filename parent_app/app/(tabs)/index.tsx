@@ -46,7 +46,7 @@ export default function ParentDashboard() {
       
       {/* Header */}
       <View className="mb-6">
-        <Text className="text-3xl font-bold text-slate-800">Parent Dashboard</Text>
+        <Text className="text-3xl font-bold text-slate-800">Child Management</Text>
         <Text className="text-base text-slate-500">Manage your children and bus rides</Text>
       </View>
 

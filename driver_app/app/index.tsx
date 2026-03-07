@@ -6,13 +6,16 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker'; 
 import * as SecureStore from 'expo-secure-store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function DriverRegisterForm() {
+  const insets = useSafeAreaInsets();
   // User Info
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   
   // Driver Info
   const [license, setLicense] = useState('');
@@ -61,7 +64,7 @@ function DriverRegisterForm() {
 
   const handleRegister = async () => {
     // 1. Validation
-    if (!email || !password || !firstName || !lastName || !license) {
+    if (!email || !password || !firstName || !lastName || !phoneNumber || !license) {
       Alert.alert('Missing Fields', 'Please fill in your personal details.');
       return;
     }
@@ -91,6 +94,7 @@ function DriverRegisterForm() {
       role: 'Driver',
       first_name: firstName,
       last_name: lastName,
+      phone_number: phoneNumber,
       license_number: license,
       
       // Start = Phone GPS
@@ -107,7 +111,21 @@ function DriverRegisterForm() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-white" contentContainerStyle={{ padding: 24, paddingBottom: 50 }}>
+    <ScrollView 
+      className="flex-1 bg-white" 
+      contentContainerStyle={{ 
+        paddingHorizontal: 24, 
+        paddingTop: Math.max(insets.top, 20) + 24,
+        paddingBottom: Math.max(insets.bottom, 20) + 50 
+      }}
+    >
+      <View className="items-center mb-4">
+        <Image 
+          source={require('../assets/images/sisuraksha_logo.png')} 
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain" 
+        />
+      </View>
       <Text className="text-3xl font-bold text-center mb-2 text-slate-800">Driver Registration</Text>
       <Text className="text-slate-500 text-center mb-8">Register your bus and route</Text>
 
@@ -118,6 +136,7 @@ function DriverRegisterForm() {
           <TextInput placeholder="First Name" value={firstName} onChangeText={setFirstName} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4" />
           <TextInput placeholder="Last Name" value={lastName} onChangeText={setLastName} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4" />
         </View>
+        <TextInput placeholder="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" autoCapitalize="none" className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" />
         <TextInput placeholder="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" />
         <TextInput placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry className="bg-slate-50 border border-slate-200 rounded-xl p-4" />
       </View>
