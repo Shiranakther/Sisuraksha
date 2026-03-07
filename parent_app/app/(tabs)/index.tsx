@@ -1,23 +1,42 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert, RefreshControl } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert, RefreshControl, Modal } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useSchools, useRegisterChild, useMyChildren } from '@/hooks/useApi'; // 👈 Import new hook
+import { useSchools, useRegisterChild, useMyChildren, useFaceStatus, useDeleteFace } from '@/hooks/useApi';
 import { useQueryClient } from '@tanstack/react-query';
+import FaceRegistration from '@/components/FaceRegistration';
+
+// --- Face Status Badge ---
+function FaceStatusBadge({ childId }: { childId: string }) {
+  const { data, isLoading } = useFaceStatus(childId);
+  if (isLoading) return <ActivityIndicator size="small" color="#94A3B8" />;
+  return (
+    <View className={`flex-row items-center px-2 py-1 rounded-lg ${data?.is_face_registered ? 'bg-green-100' : 'bg-amber-100'}`}>
+      <Ionicons
+        name={data?.is_face_registered ? 'scan' : 'scan-outline'}
+        size={12}
+        color={data?.is_face_registered ? '#16A34A' : '#D97706'}
+      />
+      <Text className={`text-xs font-bold ml-1 ${data?.is_face_registered ? 'text-green-700' : 'text-amber-700'}`}>
+        {data?.is_face_registered ? `Face ✓` : 'No Face'}
+      </Text>
+    </View>
+  );
+}
 
 export default function ParentDashboard() {
   const [childName, setChildName] = useState('');
   const [selectedSchool, setSelectedSchool] = useState('');
-  
+  const [selectedChild, setSelectedChild] = useState<any>(null);
+  const [showFaceModal, setShowFaceModal] = useState(false);
+
   const queryClient = useQueryClient();
 
   // --- API Hooks ---
   const { data: schools, isLoading: isLoadingSchools } = useSchools();
-  
-  //  1. Fetch Children Data
   const { data: myChildren, isLoading: isLoadingChildren, refetch } = useMyChildren();
-  
   const registerChildMutation = useRegisterChild();
+  const deleteFace = useDeleteFace();
 
   const handleRegister = () => {
     if (!childName.trim() || !selectedSchool) {
@@ -31,19 +50,29 @@ export default function ParentDashboard() {
     }, {
       onSuccess: () => {
         setChildName('');
-        // 👇 2. Refresh the list immediately after adding
-        queryClient.invalidateQueries({ queryKey: ['myChildren'] }); 
+        queryClient.invalidateQueries({ queryKey: ['myChildren'] });
       }
     });
   };
 
+  const handleRegisterFace = (child: any) => {
+    setSelectedChild(child);
+    setShowFaceModal(true);
+  };
+
+  const handleFaceComplete = () => {
+    setShowFaceModal(false);
+    setSelectedChild(null);
+    refetch();
+  };
+
   return (
-    <ScrollView 
+    <ScrollView
       className="flex-1 bg-slate-50"
       contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: 60 }}
       refreshControl={<RefreshControl refreshing={isLoadingChildren} onRefresh={refetch} />}
     >
-      
+
       {/* Header */}
       <View className="mb-6">
         <Text className="text-3xl font-bold text-slate-800">Child Management</Text>
@@ -98,7 +127,7 @@ export default function ParentDashboard() {
 
       {/* --- My Children List --- */}
       <View className="bg-white rounded-2xl p-5 shadow-sm shadow-slate-200">
-         <View className="flex-row items-center mb-4 gap-3 border-b border-slate-100 pb-4">
+        <View className="flex-row items-center mb-4 gap-3 border-b border-slate-100 pb-4">
           <Ionicons name="people" size={24} color="#16A34A" />
           <Text className="text-lg font-bold text-slate-800">My Children ({myChildren?.length || 0})</Text>
         </View>
@@ -106,34 +135,95 @@ export default function ParentDashboard() {
         {isLoadingChildren ? (
           <ActivityIndicator size="large" color="#16A34A" className="py-4" />
         ) : myChildren && myChildren.length > 0 ? (
-          //  3. Map through the children list
           <View className="gap-3">
             {myChildren.map((child: any) => (
-              <View key={child.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex-row justify-between items-center">
-                <View>
-                  <Text className="text-lg font-bold text-slate-800">{child.child_name}</Text>
-                  <Text className="text-slate-500 text-sm">
-                    <Ionicons name="school" size={14} /> {child.school_name || 'Unknown School'}
-                  </Text>
-                </View>
-                
-                {/* Status Indicator for Card ID */}
-                <View className={`px-3 py-1 rounded-full ${child.card_id ? 'bg-green-100' : 'bg-orange-100'}`}>
-                  <Text className={`text-xs font-bold ${child.card_id ? 'text-green-700' : 'text-orange-700'}`}>
-                    {child.card_id ? 'Active' : 'No Card'}
-                  </Text>
-                </View>
-              </View>
+              <ChildCardWithFace
+                key={child.id}
+                child={child}
+                onRegisterFace={handleRegisterFace}
+                deleteFace={deleteFace}
+              />
             ))}
           </View>
         ) : (
           <Text className="text-slate-500 text-center py-4">
-             You haven't registered any children yet.
+            You haven't registered any children yet.
           </Text>
         )}
       </View>
 
+      {/* Face Registration Modal */}
+      <Modal
+        visible={showFaceModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowFaceModal(false)}
+      >
+        {selectedChild && (
+          <FaceRegistration
+            childId={selectedChild.id}
+            childName={selectedChild.child_name}
+            onComplete={handleFaceComplete}
+            onCancel={() => setShowFaceModal(false)}
+          />
+        )}
+      </Modal>
+
     </ScrollView>
+  );
+}
+
+// --- Child Card with Face Registration ---
+function ChildCardWithFace({ child, onRegisterFace, deleteFace }: { child: any; onRegisterFace: (c: any) => void; deleteFace: any }) {
+  const { data: faceData } = useFaceStatus(child.id);
+
+  return (
+    <View className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+      {/* Top Row: Name + Status Badges */}
+      <View className="flex-row justify-between items-center mb-3">
+        <View className="flex-1">
+          <Text className="text-lg font-bold text-slate-800">{child.child_name}</Text>
+          <Text className="text-slate-500 text-sm">
+            <Ionicons name="school" size={14} /> {child.school_name || 'Unknown School'}
+          </Text>
+        </View>
+        <View className="flex-row gap-2">
+          <FaceStatusBadge childId={child.id} />
+          <View className={`px-2 py-1 rounded-lg ${child.card_id ? 'bg-green-100' : 'bg-orange-100'}`}>
+            <Text className={`text-xs font-bold ${child.card_id ? 'text-green-700' : 'text-orange-700'}`}>
+              {child.card_id ? 'Card ✓' : 'No Card'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Face Registration Action Buttons */}
+      <View className="flex-row gap-2">
+        <TouchableOpacity
+          onPress={() => onRegisterFace(child)}
+          className="flex-1 bg-blue-500 rounded-xl py-3 flex-row items-center justify-center"
+        >
+          <Ionicons name="camera" size={16} color="white" />
+          <Text className="text-white font-bold text-sm ml-2">
+            {faceData?.is_face_registered ? 'Re-register Face' : ' Register Face'}
+          </Text>
+        </TouchableOpacity>
+
+        {faceData?.is_face_registered && (
+          <TouchableOpacity
+            onPress={() => deleteFace.mutate(child.id)}
+            disabled={deleteFace.isPending}
+            className="bg-red-50 border border-red-200 rounded-xl px-3 items-center justify-center"
+          >
+            {deleteFace.isPending ? (
+              <ActivityIndicator size="small" color="#EF4444" />
+            ) : (
+              <Ionicons name="trash-outline" size={18} color="#EF4444" />
+            )}
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
   );
 }
 

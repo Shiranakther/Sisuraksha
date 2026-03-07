@@ -284,6 +284,68 @@ export const useAllChildrenDeclarations = () => {
 };
 
 
+// ========== FACE RECOGNITION HOOKS ==========
+
+export const useFaceRegister = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ childId, images }: { childId: string; images: string[] }) => {
+      const formData = new FormData();
+      formData.append('child_id', childId);
+      images.forEach((uri, i) => {
+        formData.append('images', {
+          uri,
+          type: 'image/jpeg',
+          name: `face_${i + 1}.jpg`,
+        } as any);
+      });
+      const { data } = await apiClient.post(API_ENDPOINTS.FACE_REGISTER, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+      return data;
+    },
+    onSuccess: (_, { childId }) => {
+      queryClient.invalidateQueries({ queryKey: ['faceStatus', childId] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+    },
+    onError: (err: any) => {
+      Alert.alert('Registration Failed', err.response?.data?.message || err.response?.data?.error || 'Face registration failed');
+    },
+  });
+};
+
+export const useFaceStatus = (childId: string) => {
+  return useQuery({
+    queryKey: ['faceStatus', childId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.FACE_STATUS}/${childId}`);
+      return data.data;
+    },
+    enabled: !!childId,
+    retry: false,           // Don't retry on 500 — avoids log spam when table is missing
+    staleTime: 30_000,      // Cache for 30s to reduce repeat calls per child card
+  });
+};
+
+export const useDeleteFace = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (childId: string) => {
+      const { data } = await apiClient.delete(`${API_ENDPOINTS.FACE_DELETE}/${childId}`);
+      return data;
+    },
+    onSuccess: (_, childId) => {
+      queryClient.invalidateQueries({ queryKey: ['faceStatus', childId] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+      Alert.alert('Success', 'Face data removed. You can re-register.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete face data');
+    },
+  });
+};
+
 // ========== PROFILE MANAGEMENT HOOKS ==========
 
 export const useProfile = () => {

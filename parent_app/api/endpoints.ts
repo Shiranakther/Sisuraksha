@@ -16,4 +16,10 @@ export const API_ENDPOINTS = {
   PARENT_ATTENDANCE: '/parent/my-attendance',
   DECLARE_ATTENDANCE: '/parent/declare-attendance',
   GET_DECLARATION: '/parent/attendance-declaration',
+
+  // Face Recognition
+  FACE_REGISTER: '/face/register',
+  FACE_STATUS: '/face/status',
+  FACE_DELETE: '/face/register',
+  FACE_SERVICE_STATUS: '/face/service/status',
 } as const;
