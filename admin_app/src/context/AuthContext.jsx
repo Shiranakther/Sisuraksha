@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
+import { authApi } from '../api/adminApi';
 
 const AuthContext = createContext();
 
@@ -42,7 +43,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('http://localhost:5000/api/auth/login', { email, password });
+      const response = await authApi.login(email, password);
       
       const { data, token: newToken } = response.data;
       if (data.role !== 'SuperAdmin') {
