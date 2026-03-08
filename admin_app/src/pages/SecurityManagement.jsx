@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { blockchainApi } from '../api/adminApi';
 import { ShieldAlert, ShieldCheck, ShieldX, RefreshCw, Link2, Search, MapPin, Hash, Clock, User } from 'lucide-react';
 
 const SecurityManagement = () => {
@@ -7,13 +7,15 @@ const SecurityManagement = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [verifyingBlockId, setVerifyingBlockId] = useState(null);
+  const [verificationResult, setVerificationResult] = useState({});
 
   const runAudit = async () => {
     setLoading(true);
     setError('');
     try {
       // Axios instance uses token from AuthContext
-      const res = await axios.get('http://localhost:5000/api/blockchain/validate');
+      const res = await blockchainApi.validate();
       if (res.data.status === 'success') {
         setAuditData(res.data.data);
       }
@@ -22,6 +24,27 @@ const SecurityManagement = () => {
       setError('Failed to run blockchain audit.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verifyEthBlock = async (blockId) => {
+    setVerifyingBlockId(blockId);
+    try {
+      const res = await blockchainApi.verifyBlock(blockId);
+      if (res.data) {
+        setVerificationResult(prev => ({
+            ...prev,
+            [blockId]: res.data.data
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to verify block on Ethereum", err);
+      setVerificationResult(prev => ({
+        ...prev,
+        [blockId]: { status: 'error', message: 'Verification failed to reach server.' }
+      }));
+    } finally {
+      setVerifyingBlockId(null);
     }
   };
 
@@ -274,6 +297,48 @@ const SecurityManagement = () => {
                                 {block.previousHash}
                               </div>
                             </div>
+
+                            {/* Ethereum Verification Section */}
+                            <div style={{ marginTop: '8px' }}>
+                              {!verificationResult[block._id] ? (
+                                <button
+                                  onClick={() => verifyEthBlock(block._id)}
+                                  disabled={verifyingBlockId === block._id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    backgroundColor: 'var(--primary)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: verifyingBlockId === block._id ? 'not-allowed' : 'pointer',
+                                    opacity: verifyingBlockId === block._id ? 0.7 : 1
+                                  }}
+                                >
+                                  {verifyingBlockId === block._id ? <RefreshCw className="animate-spin" size={14} /> : <ShieldCheck size={14} />}
+                                  {verifyingBlockId === block._id ? 'Verifying...' : 'Verify on Ethereum'}
+                                </button>
+                              ) : (
+                                <div style={{
+                                  padding: '8px',
+                                  fontSize: '12px',
+                                  borderRadius: '4px',
+                                  backgroundColor: verificationResult[block._id].status === 'success' ? '#dcfce7' : 
+                                                 verificationResult[block._id].status === 'pending' ? '#fef9c3' : '#fee2e2',
+                                  color: verificationResult[block._id].status === 'success' ? '#166534' : 
+                                         verificationResult[block._id].status === 'pending' ? '#854d0e' : '#991b1b',
+                                  border: `1px solid ${verificationResult[block._id].status === 'success' ? '#bbf7d0' : 
+                                                    verificationResult[block._id].status === 'pending' ? '#fef08a' : '#fecaca'}`
+                                }}>
+                                  <strong>ETH Status:</strong> {verificationResult[block._id].message}
+                                </div>
+                              )}
+                            </div>
+
                           </div>
                           
                         </div>

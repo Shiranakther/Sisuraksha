@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -8,13 +8,15 @@ import {
   MessageSquareWarning, 
   Wallet, 
   Settings,
-  LogOut
+  LogOut,
+  Menu
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: <LayoutDashboard className="nav-icon" /> },
@@ -32,9 +34,15 @@ const Sidebar = () => {
   };
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="sidebar-logo">Sisuraksha</div>
+    <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
+      <div className="sidebar-header" style={{ justifyContent: isCollapsed ? 'center' : 'space-between', padding: isCollapsed ? '24px 0' : '24px' }}>
+        {!isCollapsed && <div className="sidebar-logo">Sisuraksha</div>}
+        <button 
+          onClick={() => setIsCollapsed(!isCollapsed)} 
+          style={{ background: 'transparent', border: 'none', color: 'var(--sidebar-muted)', cursor: 'pointer', display: 'flex' }}
+        >
+          <Menu className="nav-icon" />
+        </button>
       </div>
       
       <nav className="sidebar-nav">
@@ -43,15 +51,16 @@ const Sidebar = () => {
             key={item.path} 
             to={item.path} 
             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            title={isCollapsed ? item.name : ""}
           >
             {item.icon}
-            {item.name}
+            <span>{item.name}</span>
           </NavLink>
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <button className="logout-btn" onClick={handleLogout}>
+      <div className="sidebar-footer" style={{ padding: isCollapsed ? '16px 8px' : '16px' }}>
+        <button className="logout-btn" onClick={handleLogout} title={isCollapsed ? "Sign Out" : ""}>
           <LogOut className="nav-icon" />
           <span>Sign Out</span>
         </button>
