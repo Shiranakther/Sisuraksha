@@ -1,5 +1,6 @@
 import { AttendanceLog } from '../models/AttendanceLog.js';
 import crypto from 'crypto';
+import { systemContract } from '../config/blockchain.js';
 
 
 const calculateBlockHash = (block) => {
@@ -60,6 +61,26 @@ export const runFullAudit = async () => {
                 });
             }
         }
+        
+        // Smart Contract Cross-Validation (Hybrid Architecture)
+        try {
+            const ethHash = await systemContract.getBlockHash(currentBlock._id.toString());
+            // If the Smart Contract returns an empty string or it's not mapped, the tx might still be pending. 
+            // We'll check if it differs from the current hash and is not empty.
+            if (ethHash && ethHash !== "" && ethHash !== currentBlock.hash) {
+                report.isValid = false;
+                invalidIndices.add(i);
+                report.errors.push({
+                    index: i,
+                    blockId: currentBlock._id,
+                    type: 'ETHEREUM_MISMATCH',
+                    message: `Hash mismatch with Ethereum Smart Contract for block ${i}. Local DB might be compromised.`
+                });
+            }
+        } catch (err) {
+            console.error(`Failed to verify block ${currentBlock._id} against Ethereum:`, err.message);
+            // Optionally: keep isValid as true if Ethereum just fails to respond, to avoid false positives.
+        }
     }
 
     // Populate validBlocks only with blocks that don't have errors
@@ -70,4 +91,45 @@ export const runFullAudit = async () => {
     }
 
     return report;
+};
+
+export const verifySingleBlock = async (mongoId) => {
+    try {
+        const block = await AttendanceLog.findById(mongoId);
+        if (!block) {
+            return { status: 'error', message: 'Block not found in local MongoDB.' };
+        }
+
+        // Calling a 'view' function doesn't cost any GAS/Money!
+        let ethHash = "";
+        try {
+            ethHash = await systemContract.getBlockHash(mongoId);
+        } catch (err) {
+            console.error("❌ Error fetching from Ethereum:", err.message);
+            return { status: 'error', message: 'Failed to fetch from Ethereum node.' };
+        }
+
+        if (!ethHash || ethHash === "") {
+            console.log("🔍 No record found on blockchain for this ID.");
+            return { status: 'pending', message: 'No record found on Ethereum blockchain yet.', expectedHash: block.hash };
+        }
+
+        const isMatch = (ethHash === block.hash);
+        if (isMatch) {
+            console.log(`✅ Blockchain Hash for ${mongoId} MATCHES: ${ethHash}`);
+        } else {
+            console.error(`❌ Blockchain Hash MISMATCH for ${mongoId}. ETH: ${ethHash}, LOCAL: ${block.hash}`);
+        }
+
+        return {
+            status: isMatch ? 'success' : 'tampered',
+            mongoId: block._id,
+            localHash: block.hash,
+            ethHash: ethHash,
+            isMatch: isMatch,
+            message: isMatch ? 'Hashes match. Record is fully verified on Ethereum network.' : 'Hash mismatch! Local database might be compromised.'
+        };
+    } catch (error) {
+        throw new Error('Verification failed: ' + error.message);
+    }
 };

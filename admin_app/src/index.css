@@ -278,3 +278,25 @@ body {
   font-weight: 700;
   color: var(--text-main);
 }
+
+/* Sidebar Modifications */
+.sidebar.collapsed {
+  width: 80px;
+}
+.sidebar.collapsed .sidebar-logo {
+  display: none;
+}
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px;
+}
+.sidebar.collapsed .nav-item span {
+  display: none;
+}
+.sidebar.collapsed .logout-btn {
+  justify-content: center;
+  padding: 12px;
+}
+.sidebar.collapsed .logout-btn span {
+  display: none;
+}

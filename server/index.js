@@ -21,8 +21,8 @@ import safetyRoutes from './routes/safetyRoutes.js'
 
 import windowSafetyRoutes from './routes/windowSafetyRoutes.js';
 import faceRecognitionRoutes from './routes/faceRecognitionRoutes.js';
-import blockchainRoutes from './routes/blockchainRoutes.js';const app = express();
-
+import blockchainRoutes from './routes/blockchainRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 const app = express();
 
@@ -83,6 +83,7 @@ app.use('/api/safety', safetyRoutes);
 app.use('/api/window-safety', windowSafetyRoutes);
 app.use('/api/face', faceRecognitionRoutes);
 app.use('/api/blockchain', blockchainRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use(errorHandler);
 
