@@ -1,0 +1,28 @@
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
+Error: Connection terminated due to connection timeout
+    at D:\sliit\year4\y4s1\Research\Bus Safety System\Project Coding\v2\Sisuraksha\server\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAttendanceAlerts (file:///D:/sliit/year4/y4s1/Research/Bus%20Safety%20System/Project%20Coding/v2/Sisuraksha/server/controllers/driverController.js:187:27)
