@@ -1,7 +1,8 @@
 import { pool } from '../config/postgres.js';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import os from 'os';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -18,10 +19,32 @@ const modelProcesses = new Map();
 
 // Model configuration for driver monitoring
 const MODEL_CONFIG = {
-  pythonPath: path.join(__dirname, '../../Driver monitering/myenv/Scripts/python.exe'),
-  scriptPath: path.join(__dirname, '../../Driver monitering/driver_monitor_v2.py'),
-  cwd: path.join(__dirname, '../../Driver monitering')
+  pythonPath: path.join(__dirname, '../../Driver monitering/venv/Scripts/python.exe'),
+  scriptPath: path.join(__dirname, '../../Driver monitering/driver_monitoring/main.py'),
+  cwd: path.join(__dirname, '../../Driver monitering/driver_monitoring')
 };
+
+// ── Startup cleanup ─────────────────────────────────────────────
+// When nodemon restarts the server, previously spawned Python processes
+// become orphans (Node.js does NOT kill children on exit on Windows).
+// Kill any leftover main.py processes so they don't show a stale window.
+function killOrphanedMonitors() {
+  const scriptName = 'main.py';
+  if (os.platform() === 'win32') {
+    // On Windows, use WMIC to find and kill Python processes running main.py
+    exec(
+      `wmic process where "name='python.exe' and CommandLine like '%main.py%'" call terminate`,
+      (err, stdout) => {
+        if (stdout && stdout.includes('ReturnValue = 0')) {
+          console.log('[Driver Monitor] Cleaned up orphaned monitor processes on startup.');
+        }
+      }
+    );
+  } else {
+    exec(`pkill -f ${scriptName}`, () => {});
+  }
+}
+killOrphanedMonitors();
 
 // POST - Start model process
 export const startModel = (req, res) => {
@@ -50,7 +73,8 @@ export const startModel = (req, res) => {
     const modelProcess = spawn(MODEL_CONFIG.pythonPath, [MODEL_CONFIG.scriptPath], {
       cwd: MODEL_CONFIG.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: false
+      detached: false,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
     
     modelProcess.stdout.on('data', (data) => {
@@ -107,14 +131,19 @@ export const stopModel = (req, res) => {
     const modelProcess = modelProcesses.get(driverId);
     
     if (modelProcess && !modelProcess.killed) {
-      modelProcess.kill('SIGTERM');
+      const pid = modelProcess.pid;
       
-      // Force kill after 3 seconds if still running
-      setTimeout(() => {
-        if (!modelProcess.killed) {
-          modelProcess.kill('SIGKILL');
-        }
-      }, 3000);
+      if (os.platform() === 'win32') {
+        // SIGTERM is not real on Windows — use taskkill to force-kill the process tree
+        exec(`taskkill /F /T /PID ${pid}`, (err) => {
+          if (err) console.error(`[Driver Monitor] taskkill error for PID ${pid}:`, err.message);
+        });
+      } else {
+        modelProcess.kill('SIGTERM');
+        setTimeout(() => {
+          if (!modelProcess.killed) modelProcess.kill('SIGKILL');
+        }, 3000);
+      }
     }
     
     modelProcesses.delete(driverId);

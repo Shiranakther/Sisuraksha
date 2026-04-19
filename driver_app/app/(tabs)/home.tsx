@@ -62,7 +62,7 @@ export default function HomeScreen() {
         <Text className="text-slate-800 font-bold mb-4 text-lg">Active Trip Controls</Text>
 
         <TouchableOpacity
-          onPress={() => router.push('/')}
+          onPress={() => router.push('/(tabs)/route-requests')}
           className="w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex-row items-center mb-8"
         >
           <View className="bg-orange-100 p-4 rounded-full mr-4">

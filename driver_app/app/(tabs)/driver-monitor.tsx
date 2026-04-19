@@ -64,7 +64,7 @@ const getDetectionTitle = (alertType: string): string => {
 export default function DriverMonitorScreen() {
   const authContext = useContext(AuthContext);
   const driverId = '8c394627-e397-4bd5-928f-4cc66cfebac1';
-  
+
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({ status: 'offline', enabled: true, lastHeartbeat: null });
   const [modelStatus, setModelStatus] = useState<ModelStatus>({ running: false, pid: null });
   const [alerts, setAlerts] = useState<MonitorAlert[]>([]);
@@ -75,7 +75,12 @@ export default function DriverMonitorScreen() {
   const fetchStatus = useCallback(async () => {
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MONITOR_STATUS}?driver_id=${driverId}`);
-      setSystemStatus(response.data);
+      const data = response.data;
+      setSystemStatus(data);
+      // If system is offline, model can't be running — keep UI in sync
+      if (data.status === 'offline') {
+        setModelStatus({ running: false, pid: null });
+      }
     } catch (error) {
       console.error('Failed to fetch status:', error);
     }
@@ -113,13 +118,17 @@ export default function DriverMonitorScreen() {
         const response = await apiClient.post(API_ENDPOINTS.DRIVER_MODEL_STOP, { driver_id: driverId });
         if (response.data.success) {
           setModelStatus({ running: false, pid: null });
+          // Immediately re-fetch status to confirm offline
+          setTimeout(() => { fetchStatus(); fetchModelStatus(); }, 500);
         }
       }
     } catch (error) {
       console.error('Failed to toggle model:', error);
+      // Re-fetch to get true state from server on error
+      fetchModelStatus();
     }
     setIsToggling(false);
-  }, [driverId]);
+  }, [driverId, fetchStatus, fetchModelStatus]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -136,14 +145,15 @@ export default function DriverMonitorScreen() {
     if (autoRefresh) {
       interval = setInterval(() => {
         fetchStatus();
+        fetchModelStatus();
         fetchAlerts();
-      }, 3000);
+      }, 10000);
     }
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, fetchStatus, fetchAlerts]);
+  }, [autoRefresh, fetchStatus, fetchModelStatus, fetchAlerts]);
 
   // Group alerts by date
   const groupedAlerts = useMemo(() => {
@@ -161,7 +171,7 @@ export default function DriverMonitorScreen() {
     alerts.forEach(alert => {
       const alertDate = new Date(alert.created_at);
       alertDate.setHours(0, 0, 0, 0);
-      
+
       if (alertDate.getTime() === today.getTime()) {
         groups.today.push(alert);
       } else if (alertDate.getTime() === yesterday.getTime()) {
@@ -178,7 +188,7 @@ export default function DriverMonitorScreen() {
   const stats = useMemo(() => {
     const todayAlerts = groupedAlerts.today;
     const dangerCount = alerts.filter(a => a.severity === 'DANGER').length;
-    
+
     return {
       today: todayAlerts.length,
       danger: dangerCount,
@@ -221,23 +231,23 @@ export default function DriverMonitorScreen() {
                   {isToggling ? (
                     <ActivityIndicator size={32} color="white" />
                   ) : (
-                    <Ionicons 
-                      name={modelStatus.running ? "car" : "car-outline"} 
-                      size={32} 
-                      color="white" 
+                    <Ionicons
+                      name={modelStatus.running ? "car" : "car-outline"}
+                      size={32}
+                      color="white"
                     />
                   )}
                 </View>
                 <View className="ml-4">
                   <Text className="text-white/70 text-sm uppercase tracking-wider">Status</Text>
                   <Text className="text-white text-2xl font-bold">
-                    {isToggling 
-                      ? (modelStatus.running ? 'Stopping' : 'Starting') 
+                    {isToggling
+                      ? (modelStatus.running ? 'Stopping' : 'Starting')
                       : (modelStatus.running ? 'Monitoring' : 'Inactive')}
                   </Text>
                 </View>
               </View>
-              
+
               <Switch
                 value={modelStatus.running}
                 onValueChange={toggleModel}
@@ -252,22 +262,22 @@ export default function DriverMonitorScreen() {
 
         {/* Stats Row */}
         <View className="flex-row mx-4 mt-4 gap-3">
-          <StatCard 
-            value={stats.today} 
-            label="Today" 
+          <StatCard
+            value={stats.today}
+            label="Today"
             icon="today-outline"
             iconColor="#3B82F6"
           />
-          <StatCard 
-            value={stats.danger} 
-            label="Critical" 
+          <StatCard
+            value={stats.danger}
+            label="Critical"
             icon="warning-outline"
             iconColor="#EF4444"
             accentColor={stats.danger > 0 ? '#EF4444' : undefined}
           />
-          <StatCard 
-            value={`${stats.score}%`} 
-            label="Score" 
+          <StatCard
+            value={`${stats.score}%`}
+            label="Score"
             icon="shield-checkmark-outline"
             iconColor="#10B981"
             accentColor={stats.score >= 80 ? '#10B981' : stats.score >= 50 ? '#F59E0B' : '#EF4444'}
@@ -275,14 +285,14 @@ export default function DriverMonitorScreen() {
         </View>
 
         {/* Auto-refresh toggle */}
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => setAutoRefresh(!autoRefresh)}
           className="mx-4 mt-4 flex-row items-center justify-end"
         >
-          <Ionicons 
-            name={autoRefresh ? "sync" : "sync-outline"} 
-            size={16} 
-            color={autoRefresh ? "#3B82F6" : "#94A3B8"} 
+          <Ionicons
+            name={autoRefresh ? "sync" : "sync-outline"}
+            size={16}
+            color={autoRefresh ? "#3B82F6" : "#94A3B8"}
           />
           <Text className={`ml-1 text-sm ${autoRefresh ? 'text-blue-500' : 'text-slate-400'}`}>
             Auto-refresh {autoRefresh ? 'on' : 'off'}
@@ -292,7 +302,7 @@ export default function DriverMonitorScreen() {
         {/* Alerts Timeline */}
         <View className="mx-4 mt-4 bg-white rounded-2xl p-4 mb-6">
           <Text className="text-lg font-semibold text-slate-800 mb-4">Activity</Text>
-          
+
           {alerts.length === 0 ? (
             <View className="py-8 items-center">
               <Ionicons name="car-sport-outline" size={40} color="#CBD5E1" />
@@ -319,7 +329,7 @@ export default function DriverMonitorScreen() {
                   ))}
                 </TimelineGroup>
               )}
-              
+
               {groupedAlerts.yesterday.length > 0 && (
                 <TimelineGroup title="Yesterday">
                   {groupedAlerts.yesterday.map((alert, idx) => (
@@ -336,7 +346,7 @@ export default function DriverMonitorScreen() {
                   ))}
                 </TimelineGroup>
               )}
-              
+
               {groupedAlerts.earlier.length > 0 && (
                 <TimelineGroup title="Earlier">
                   {groupedAlerts.earlier.slice(0, 10).map((alert, idx) => (

@@ -1,128 +1,3 @@
-// import React, { useState } from 'react';
-// import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
-// import { Ionicons } from '@expo/vector-icons';
-// import { useDriverAttendance } from '@/hooks/useApi';
-// import DateTimePicker from '@react-native-community/datetimepicker'; // npx expo install @react-native-community/datetimepicker
-
-// export default function DriverAttendanceScreen() {
-//   // State
-//   const [searchQuery, setSearchQuery] = useState('');
-//   const [selectedDate, setSelectedDate] = useState(new Date());
-//   const [showDatePicker, setShowDatePicker] = useState(false);
-
-//   // Format date for API (YYYY-MM-DD)
-//   const dateString = selectedDate.toISOString().split('T')[0];
-
-//   // Fetch Data
-//   const { data: logs, isLoading, refetch } = useDriverAttendance(dateString, searchQuery);
-
-//   const renderLogItem = ({ item }: { item: any }) => (
-//     <View className="bg-white p-4 mb-3 rounded-2xl border border-slate-100 shadow-sm">
-//       <View className="flex-row justify-between items-center mb-2">
-//         <Text className="text-lg font-bold text-slate-800">{item.child_name}</Text>
-//         <View className={`px-2 py-1 rounded-md ${item.is_present ? 'bg-green-100' : 'bg-red-100'}`}>
-//           <Text className={`text-xs font-bold ${item.is_present ? 'text-green-700' : 'text-red-700'}`}>
-//             {item.is_present ? 'Present' : 'Absent'}
-//           </Text>
-//         </View>
-//       </View>
-
-//       <Text className="text-slate-400 text-xs uppercase font-bold mb-2">School: {item.school_name}</Text>
-
-//       {/* Times Grid */}
-//       <View className="flex-row bg-slate-50 p-2 rounded-lg">
-//         <View className="flex-1 items-center border-r border-slate-200">
-//           <Text className="text-xs text-slate-400">Morning Pickup</Text>
-//           <Text className="font-bold text-slate-700">{item.morning_pickup_time || '--:--'}</Text>
-//         </View>
-//         <View className="flex-1 items-center">
-//           <Text className="text-xs text-slate-400">Morning Drop</Text>
-//           <Text className="font-bold text-slate-700">{item.morning_drop_time || '--:--'}</Text>
-//         </View>
-//       </View>
-//       <View className="flex-row bg-slate-50 p-2 rounded-lg">
-//         <View className="flex-1 items-center border-r border-slate-200">
-//           <Text className="text-xs text-slate-400">Evening Pickup</Text>
-//           <Text className="font-bold text-slate-700">{item.evening_pickup_time || '--:--'}</Text>
-//         </View>
-//         <View className="flex-1 items-center">
-//           <Text className="text-xs text-slate-400">Evening Drop</Text>
-//           <Text className="font-bold text-slate-700">{item.evening_drop_time || '--:--'}</Text>
-//         </View>
-//       </View>
-//     </View>
-//   );
-
-//   return (
-//     <View className="flex-1 bg-slate-50 pt-16 px-5">
-//       <View className="mb-4">
-//         <Text className="text-3xl font-bold text-slate-800">Attendance Log</Text>
-//         <Text className="text-slate-500">Track student activity on your bus</Text>
-//       </View>
-
-//       {/* --- Controls Section --- */}
-//       <View className="bg-white p-3 rounded-2xl shadow-sm mb-4">
-
-//         {/* Search Bar */}
-//         <View className="flex-row items-center bg-slate-100 rounded-xl px-3 py-2 mb-3">
-//           <Ionicons name="search" size={20} color="#94a3b8" />
-//           <TextInput 
-//             className="flex-1 ml-2 text-slate-700"
-//             placeholder="Search student name..."
-//             value={searchQuery}
-//             onChangeText={setSearchQuery}
-//           />
-//         </View>
-
-//         {/* Date Picker Button */}
-//         <TouchableOpacity 
-//           onPress={() => setShowDatePicker(true)}
-//           className="flex-row items-center justify-between bg-indigo-50 px-3 py-3 rounded-xl border border-indigo-100"
-//         >
-//           <View className="flex-row items-center">
-//             <Ionicons name="calendar" size={20} color="#4F46E5" />
-//             <Text className="ml-2 font-bold text-indigo-700">
-//               Date: {selectedDate.toDateString()}
-//             </Text>
-//           </View>
-//           <Ionicons name="chevron-down" size={16} color="#4F46E5" />
-//         </TouchableOpacity>
-
-//         {showDatePicker && (
-//           <DateTimePicker
-//             value={selectedDate}
-//             mode="date"
-//             display="default"
-//             onChange={(event, date) => {
-//               setShowDatePicker(false);
-//               if (date) setSelectedDate(date);
-//             }}
-//           />
-//         )}
-//       </View>
-
-//       {/* --- Results List --- */}
-//       {isLoading ? (
-//         <ActivityIndicator size="large" color="#4F46E5" className="mt-10" />
-//       ) : (
-//         <FlatList
-//           data={logs}
-//           keyExtractor={(item) => item.attendance_id || Math.random().toString()}
-//           renderItem={renderLogItem}
-//           refreshing={isLoading}
-//           onRefresh={refetch}
-//           contentContainerStyle={{ paddingBottom: 100 }}
-//           ListEmptyComponent={
-//             <View className="items-center mt-10">
-//               <Text className="text-slate-400">No attendance records found.</Text>
-//             </View>
-//           }
-//         />
-//       )}
-//     </View>
-//   );
-// }
-
 import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, Linking, Alert, ScrollView, Image, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -134,7 +9,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function DriverAttendanceScreen() {
   // --- State ---
-  const [activeTab, setActiveTab] = useState<'scan' | 'log'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'log'>('log');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -153,7 +28,7 @@ export default function DriverAttendanceScreen() {
 
   // 1. Logs (Existing)
   const dateString = selectedDate.toISOString().split('T')[0];
-  const { data: logs, isLoading: loadingLogs, refetch: refetchLogs } = useDriverAttendance(dateString, searchQuery);
+  const { data: logs, isLoading: loadingLogs, refetch: refetchLogs, isError: logsError } = useDriverAttendance(dateString, searchQuery);
 
   // 2. Alerts (Fetches missing students for TODAY)
   const { data: missingStudents, isLoading: loadingAlerts, refetch: refetchAlerts } = useAttendanceAlerts();
@@ -611,6 +486,15 @@ export default function DriverAttendanceScreen() {
           ListEmptyComponent={
             loadingLogs ? (
               <ActivityIndicator size="large" color="#4F46E5" className="mt-10" />
+            ) : logsError ? (
+              <View className="items-center mt-10 px-4">
+                <Ionicons name="cloud-offline-outline" size={48} color="#F87171" />
+                <Text className="text-red-500 font-bold mt-2">Failed to load attendance</Text>
+                <Text className="text-slate-400 text-center mt-1">Check your connection and try again.</Text>
+                <TouchableOpacity onPress={handleRefresh} className="mt-4 bg-indigo-600 px-6 py-2 rounded-xl">
+                  <Text className="text-white font-bold">Retry</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               <View className="items-center mt-10">
                 <Ionicons name="document-text-outline" size={48} color="#cbd5e1" />

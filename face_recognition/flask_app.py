@@ -74,6 +74,13 @@ def extract_face_mtcnn(frame, min_confidence=None):
     Returns list of 160x160 face images.
     """
     threshold = min_confidence if min_confidence is not None else FACE_DETECTION_CONFIDENCE
+
+    # MTCNN needs at least ~50×50 pixels to work; skip tiny frames
+    h, w = frame.shape[:2]
+    if h < 50 or w < 50:
+        print(f"[WARN] Image too small for MTCNN ({w}x{h}), skipping detection")
+        return []
+
     candidates = [
         frame,
         cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE),
@@ -86,7 +93,12 @@ def extract_face_mtcnn(frame, min_confidence=None):
 
     for rotated in candidates:
         rgb = cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB)
-        results = detector.detect_faces(rgb)
+        try:
+            results = detector.detect_faces(rgb)
+        except ValueError:
+            # MTCNN ONet can crash with empty Conv2D output on some
+            # rotated / very small images — skip this orientation.
+            continue
 
         faces = []
         max_conf = 0.0

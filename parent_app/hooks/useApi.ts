@@ -397,3 +397,103 @@ export const useDeleteProfile = () => {
     },
   });
 };
+
+
+// ========== ATTENDANCE SCHEDULE HOOKS (Route Management) ==========
+
+interface ScheduleEntry {
+  date: string;
+  isPresent: boolean;
+  scheduleType: string;
+  pickupLat?: number | null;
+  pickupLon?: number | null;
+  pickupAddress?: string | null;
+  dropoffLat?: number | null;
+  dropoffLon?: number | null;
+  dropoffAddress?: string | null;
+  notes?: string | null;
+}
+
+export const useSetAttendanceSchedule = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { childId: string; schedules: ScheduleEntry[] }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.ATTENDANCE_SCHEDULE_SET, payload);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendanceSchedule'] });
+      queryClient.invalidateQueries({ queryKey: ['attendanceHistory'] });
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to save schedule');
+    },
+  });
+};
+
+export const useGetAttendanceSchedule = (childId: string | null, from?: string, to?: string) => {
+  return useQuery({
+    queryKey: ['attendanceSchedule', childId, from, to],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (childId) params.append('childId', childId);
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ATTENDANCE_SCHEDULE_GET}/range?${params.toString()}`);
+      return data.data;
+    },
+    enabled: !!childId,
+  });
+};
+
+export const useGetAttendanceHistory = (childId?: string | null) => {
+  return useQuery({
+    queryKey: ['attendanceHistory', childId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (childId) params.append('childId', childId);
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ATTENDANCE_HISTORY}?${params.toString()}`);
+      return data.data;
+    },
+  });
+};
+
+export const useGetHolidays = () => {
+  return useQuery({
+    queryKey: ['holidays'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.HOLIDAYS);
+      return data.data;
+    },
+    staleTime: 60 * 60 * 1000, // cache for 1 hour
+  });
+};
+
+// ==========================================
+// ACCIDENT DETECTION HOOKS
+// ==========================================
+
+export const useActiveAccidentAlerts = () => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'active'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.ACCIDENT_ACTIVE);
+      return data.data;
+    },
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};
+
+export const useAccidentHistory = (limit = 20) => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'history', limit],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ACCIDENT_HISTORY}?limit=${limit}`);
+      return data.data;
+    },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+};

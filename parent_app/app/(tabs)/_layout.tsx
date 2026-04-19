@@ -64,6 +64,13 @@ export default function TabLayout() {
         }} 
       />
       <Tabs.Screen 
+        name="alerts" 
+        options={{ 
+          title: 'Alerts', 
+          tabBarIcon: ({ color }) => <Ionicons name="notifications" size={24} color={color} /> 
+        }} 
+      />
+      <Tabs.Screen 
         name="settings" 
         options={{ 
           title: 'Settings', 
@@ -75,9 +82,10 @@ export default function TabLayout() {
       <Tabs.Screen name="assign_bus" options={{ href: null }} />
       <Tabs.Screen name="driver" options={{ href: null }} />
       <Tabs.Screen name="parent" options={{ href: null }} />
-      <Tabs.Screen name="admin" options={{ href: null }} />
+      <Tabs.Screen name="maps" options={{ href: null }} />
       <Tabs.Screen name="profile" options={{ href: null }} />
       <Tabs.Screen name="explore" options={{ href: null }} />
+      <Tabs.Screen name="route-management" options={{ href: null }} />
     </Tabs>
   );
 }
