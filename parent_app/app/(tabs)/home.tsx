@@ -115,6 +115,17 @@ export default function HomeScreen() {
             <Text className="text-xs text-slate-400 text-center mt-1">Register face</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/route-management')}
+            className="w-[47%] bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
+          >
+            <View className="bg-purple-100 w-14 h-14 rounded-full items-center justify-center mb-3">
+              <Ionicons name="map" size={28} color="#7C3AED" />
+            </View>
+            <Text className="text-base font-bold text-slate-800 text-center">Route Mgmt</Text>
+            <Text className="text-xs text-slate-400 text-center mt-1">Schedule & history</Text>
+          </TouchableOpacity>
+
         </View>
 
         {/* --- Today's Bus Attendance Section --- */}

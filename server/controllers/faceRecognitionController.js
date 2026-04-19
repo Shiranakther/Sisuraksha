@@ -411,8 +411,11 @@ export const verifyFace = async (req, res, next) => {
       );
     } catch (err) {
       if (err.response) {
-        throw new AppError(err.response.data?.error || 'Face verification failed', 400);
+        const flaskError = err.response.data?.error || 'Face verification failed';
+        console.error(`[FACE] Flask returned ${err.response.status}: ${flaskError}`);
+        throw new AppError(flaskError, 400);
       }
+      console.error('[FACE] Flask service unreachable:', err.message);
       throw new AppError('Face recognition service is not available. Please start it first.', 503);
     }
 

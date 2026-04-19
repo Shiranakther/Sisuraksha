@@ -151,6 +151,20 @@ npx expo start
 
 ```
 
+### Python backend environments (fresh pull)
+
+Run this once from the repository root to create module-level `.venv` folders and install pinned dependencies from each `requirements.txt`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_python_envs.ps1
+```
+
+If you want to rebuild environments from scratch:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_python_envs.ps1 -Recreate
+```
+
 ## 👥 Team & Individual Contributions  
 
 | Member | Reg No | Responsibilities |

@@ -10,6 +10,10 @@ interface AlertTimelineItemProps {
   confidence?: number;
   isLast?: boolean;
   icon?: keyof typeof Ionicons.glyphMap;
+  /** Which IR steps were active when alert fired (null = not an IR event). */
+  sensorSteps?: { s1: boolean; s2: boolean; s3: boolean } | null;
+  /** Detection source for the badge. */
+  detectionSource?: 'IR_ONLY' | 'AI_ONLY' | 'DUAL' | null;
 }
 
 const severityConfig = {
@@ -27,7 +31,9 @@ export function AlertTimelineItem({
   severity, 
   confidence, 
   isLast = false,
-  icon 
+  icon,
+  sensorSteps,
+  detectionSource,
 }: AlertTimelineItemProps) {
   const [expanded, setExpanded] = useState(false);
   const config = severityConfig[severity as keyof typeof severityConfig] || severityConfig.default;
@@ -63,6 +69,71 @@ export function AlertTimelineItem({
         {expanded && (
           <View className="mt-2">
             <Text className="text-sm text-slate-600 leading-5">{message}</Text>
+
+            {/* IR step diagram — shown when sensor step data is available */}
+            {sensorSteps && (
+              <View className="mt-3 bg-slate-50 rounded-xl p-3">
+                <Text className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">
+                  IR Sensor Steps
+                </Text>
+                <View className="flex-row gap-2">
+                  {[
+                    { key: 's1', label: 'S1', desc: 'Entry',  active: sensorSteps.s1, danger: false },
+                    { key: 's2', label: 'S2', desc: 'Mid',    active: sensorSteps.s2, danger: false },
+                    { key: 's3', label: 'S3', desc: 'Bottom', active: sensorSteps.s3, danger: true  },
+                  ].map(step => (
+                    <View
+                      key={step.key}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        borderRadius: 10,
+                        alignItems: 'center',
+                        backgroundColor: step.active
+                          ? (step.danger ? '#EF4444' : '#F59E0B')
+                          : '#E2E8F0',
+                      }}
+                    >
+                      <Ionicons
+                        name={step.active ? 'person' : 'remove-circle-outline'}
+                        size={14}
+                        color={step.active ? 'white' : '#94A3B8'}
+                      />
+                      <Text style={{
+                        fontSize: 11, fontWeight: '700', marginTop: 2,
+                        color: step.active ? 'white' : '#94A3B8',
+                      }}>
+                        {step.label}
+                      </Text>
+                      <Text style={{
+                        fontSize: 9, marginTop: 1,
+                        color: step.active ? 'rgba(255,255,255,0.8)' : '#CBD5E1',
+                      }}>
+                        {step.active ? (step.danger ? 'DANGER' : 'BLOCKED') : step.desc.toUpperCase()}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Detection source badge */}
+                {detectionSource && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                    <Ionicons
+                      name={detectionSource === 'IR_ONLY' ? 'hardware-chip-outline' : detectionSource === 'AI_ONLY' ? 'eye-outline' : 'shield-half-outline'}
+                      size={12}
+                      color={detectionSource === 'DUAL' ? '#7C3AED' : detectionSource === 'IR_ONLY' ? '#2563EB' : '#059669'}
+                    />
+                    <Text style={{
+                      fontSize: 11, marginLeft: 4, fontWeight: '600',
+                      color: detectionSource === 'DUAL' ? '#7C3AED' : detectionSource === 'IR_ONLY' ? '#2563EB' : '#059669',
+                    }}>
+                      {detectionSource === 'DUAL' ? 'AI + IR Sensors' : detectionSource === 'IR_ONLY' ? 'IR Sensor Only' : 'AI Vision Only'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
             {confidence !== undefined && (
               <View className="flex-row items-center mt-2">
                 <View className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">

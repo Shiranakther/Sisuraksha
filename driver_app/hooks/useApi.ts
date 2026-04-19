@@ -356,3 +356,108 @@ export const useFaceVerify = () => {
     },
   });
 };
+
+// ---- DRIVER TRIP / ROUTE HOOKS ----
+
+export const useTripRequests = () =>
+  useQuery({
+    queryKey: ['trip-requests'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_REQUESTS);
+      return data as { data: any[]; date: string };
+    },
+    refetchInterval: 30000,
+  });
+
+export const useTodayTripData = () =>
+  useQuery({
+    queryKey: ['trip-today'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_TODAY);
+      return data as { present: any[]; absent: any[]; present_count: number; absent_count: number; date: string };
+    },
+  });
+
+export const useCreateTrip = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      start_lat: number;
+      start_lon: number;
+      end_lat?: number;
+      end_lon?: number;
+      trip_type?: 'MORNING' | 'EVENING';
+    }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.TRIP_CREATE, payload);
+      return data as { trip: any; ordered_children: any[] };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trip-boarding'] }),
+  });
+};
+
+export const useBoardingStatus = (tripId: string | null) =>
+  useQuery({
+    queryKey: ['trip-boarding', tripId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.TRIP_BOARDING}/${tripId}/boarding`);
+      return data.data as any[];
+    },
+    enabled: !!tripId,
+    refetchInterval: 10000,
+  });
+
+export const useMarkChildBoarded = (tripId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ childId, board_method }: { childId: string; board_method?: string }) => {
+      const { data } = await apiClient.post(
+        `${API_ENDPOINTS.TRIP_MARK_BOARD}/${tripId}/child/${childId}/board`,
+        { board_method: board_method || 'MANUAL' }
+      );
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trip-boarding', tripId] }),
+  });
+};
+
+// ==========================================
+// ACCIDENT DETECTION HOOKS
+// ==========================================
+
+export const useActiveAccidentAlerts = () => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'active'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.ACCIDENT_ACTIVE);
+      return data.data;
+    },
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};
+
+export const useAccidentHistory = (limit = 20) => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'history', limit],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ACCIDENT_HISTORY}?limit=${limit}`);
+      return data.data;
+    },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+};
+
+export const useDoorStatus = () => {
+  return useQuery({
+    queryKey: ['doorStatus'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.DOOR_STATUS);
+      return data.data;
+    },
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};

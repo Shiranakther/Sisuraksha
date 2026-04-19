@@ -67,6 +67,10 @@ export default function TabLayout() {
           title: 'Privacy Policy',
         }}
       />
+      <Tabs.Screen name="route-dashboard" options={{ href: null }} />
+      <Tabs.Screen name="route-requests" options={{ href: null }} />
+      <Tabs.Screen name="route-today" options={{ href: null }} />
+      <Tabs.Screen name="route-map-trip" options={{ href: null }} />
     </Tabs>
   );
 }

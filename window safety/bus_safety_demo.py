@@ -3,15 +3,66 @@ import threading
 import torch
 import requests
 import time
+import os
+import sys
 from ultralytics import YOLO
 from datetime import datetime
 
-# --- SERVER CONFIGURATION ---
-SERVER_URL = "http://localhost:5000/api/window-safety"
-DRIVER_ID = "8c394627-e397-4bd5-928f-4cc66cfebac1"  # Your working driver ID
+import argparse
 
-# --- IP CAMERA CONFIGURATION ---
-PHONE_IP = "192.168.1.100:8080"  # Change to your phone's IP
+# ---------------------------------------------------------------------------
+# SOUND ALERT — plays alert.wav (non-blocking) on each detection
+# ---------------------------------------------------------------------------
+_SOUND_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 '..', 'driver_app', 'assets', 'sounds', 'alert.wav')
+)
+_last_sound_time: dict = {}
+SOUND_COOLDOWN = 3  # seconds between sounds for the same detection class
+
+def play_alert_sound(detection_class: str = "default") -> None:
+    """Play alert.wav in a background thread (non-blocking). Per-class cooldown."""
+    now = time.time()
+    if now - _last_sound_time.get(detection_class, 0) < SOUND_COOLDOWN:
+        return
+    _last_sound_time[detection_class] = now
+
+    def _play():
+        try:
+            if sys.platform == "win32":
+                import winsound
+                winsound.PlaySound(
+                    _SOUND_PATH,
+                    winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NOWAIT
+                )
+            else:
+                import subprocess
+                player = "afplay" if sys.platform == "darwin" else "aplay"
+                subprocess.Popen([player, _SOUND_PATH],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"[Sound] Could not play alert: {e}")
+
+    threading.Thread(target=_play, daemon=True).start()
+# ---------------------------------------------------------------------------
+
+# --- DEFAULT CONFIGURATION ---
+DEFAULT_SERVER_URL = "http://localhost:5000/api/window-safety"
+DEFAULT_DRIVER_ID = "8c394627-e397-4bd5-928f-4cc66cfebac1"
+DEFAULT_PHONE_IP = "10.60.136.249:8080"  # Match footboard safety default
+
+# Initialize parser
+parser = argparse.ArgumentParser(description="Window Safety Monitoring System")
+parser.add_argument("--driver_id", type=str, default=DEFAULT_DRIVER_ID, help="Driver UUID")
+parser.add_argument("--server_url", type=str, default=DEFAULT_SERVER_URL, help="Backend API URL for window safety")
+parser.add_argument("--phone_ip", type=str, default=DEFAULT_PHONE_IP, help="IP address of the phone camera (e.g. 192.168.1.103:8080)")
+
+args = parser.parse_args()
+
+SERVER_URL = args.server_url
+DRIVER_ID = args.driver_id
+PHONE_IP = args.phone_ip
 VIDEO_URL = f"http://{PHONE_IP}/video"
 
 # --- GPU ACCELERATION ---
@@ -60,6 +111,7 @@ def send_alert(alert_type, severity, message, confidence=None):
             "driver_id": DRIVER_ID,
             "alert_type": alert_type,
             "severity": severity,
+            "status": severity,
             "message": message
         }
         if confidence:

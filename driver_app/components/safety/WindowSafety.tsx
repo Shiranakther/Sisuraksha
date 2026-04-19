@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback, useContext, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useContext, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import apiClient from '../../api/axios';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import { AuthContext } from '../../auth/AuthContext';
@@ -52,6 +53,54 @@ export default function WindowSafetyMonitor() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
 
+  // Audio alarm — same pattern as FootboardSafety
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const lastAlertId = useRef<number | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const initAudio = async () => {
+      try {
+        // Required for sound to play on iOS silent mode and Android
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+        });
+        const { sound: initialSound } = await Audio.Sound.createAsync(
+          require('../../assets/sounds/alert.wav')
+        );
+        if (isMounted) {
+          soundRef.current = initialSound;
+        } else {
+          initialSound.unloadAsync();
+        }
+      } catch (err) {
+        console.error('Window safety: failed to load audio', err);
+      }
+    };
+    initAudio();
+    return () => {
+      isMounted = false;
+      soundRef.current?.unloadAsync();
+    };
+  }, []);
+
+  const playAlarm = useCallback(async () => {
+    try {
+      if (!soundRef.current) return;
+      const status = await soundRef.current.getStatusAsync();
+      if (!status.isLoaded) return;
+      // Only stop if already playing — calling stopAsync on an idle sound throws
+      if (status.isPlaying) {
+        await soundRef.current.stopAsync();
+      }
+      await soundRef.current.setPositionAsync(0);
+      await soundRef.current.playAsync();
+    } catch (error) {
+      console.error("Couldn't play window safety alarm", error);
+    }
+  }, []);
+
   const fetchStatus = useCallback(async () => {
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.WINDOW_SAFETY_STATUS}?driver_id=${driverId}`);
@@ -74,12 +123,25 @@ export default function WindowSafetyMonitor() {
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.WINDOW_SAFETY_ALERTS}?driver_id=${driverId}`);
       if (response.data && Array.isArray(response.data)) {
-        setAlerts(response.data);
+        const data: SafetyAlert[] = response.data;
+        setAlerts(data);
+
+        // Play alarm on new DANGER or WARNING alert — same logic as FootboardSafety
+        if (data.length > 0) {
+          const latestAlert = data[0];
+          if (lastAlertId.current !== null && latestAlert.id !== lastAlertId.current) {
+            const sev = latestAlert.status || (latestAlert as any).severity || '';
+            if (sev === 'DANGER' || sev === 'CRITICAL' || sev === 'WARNING') {
+              playAlarm();
+            }
+          }
+          lastAlertId.current = latestAlert.id;
+        }
       }
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
     }
-  }, [driverId]);
+  }, [driverId, playAlarm]);
 
   const toggleModel = useCallback(async (shouldRun: boolean) => {
     setIsToggling(true);
@@ -117,7 +179,7 @@ export default function WindowSafetyMonitor() {
       interval = setInterval(() => {
         fetchStatus();
         fetchAlerts();
-      }, 3000);
+      }, 10000);
     }
 
     return () => {
