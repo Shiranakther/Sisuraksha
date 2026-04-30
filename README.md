@@ -165,6 +165,33 @@ If you want to rebuild environments from scratch:
 powershell -ExecutionPolicy Bypass -File .\setup_python_envs.ps1 -Recreate
 ```
 
+## Shared Network Configuration (Hotspot/IP Changes)
+
+To avoid editing IPs in multiple Python scripts, update only this file:
+
+```
+sisuraksha_network.env
+```
+
+Current shared keys:
+
+- `DRIVER_ID`
+- `PHONE_IP`
+- `ESP32_IR_IP`
+- `FOOTBOARD_SERVER_URL`
+- `DRIVER_MONITOR_SERVER_URL`
+- `WINDOW_SAFETY_SERVER_URL`
+- `FOOTBOARD_WEBHOOK_PORT`
+
+These values are now used by:
+
+- `footboard safety/riyabeth_pro_safety.py`
+- `footboard safety/heartbeat_test.py`
+- `footboard safety/test_connection.py`
+- `window safety/bus_safety_demo.py`
+- `Driver monitering/driver_monitor_v2.py`
+- `Driver monitering/driver_monitoring/main.py`
+
 ## 👥 Team & Individual Contributions  
 
 | Member | Reg No | Responsibilities |

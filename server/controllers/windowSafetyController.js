@@ -1,5 +1,6 @@
 import { pool } from '../config/postgres.js';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
+import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -17,11 +18,55 @@ const driverSystemEnabled = new Map();
 const modelProcesses = new Map();
 
 // Model configuration for window safety
+const WINDOW_SAFETY_ROOT = path.join(__dirname, '../../window safety');
+
 const MODEL_CONFIG = {
-  pythonPath: path.join(__dirname, '../../window safety/venv/Scripts/python.exe'),
-  scriptPath: path.join(__dirname, '../../window safety/bus_safety_demo.py'),
-  cwd: path.join(__dirname, '../../window safety')
+  pythonCandidates: [
+    path.join(WINDOW_SAFETY_ROOT, '.venv/Scripts/python.exe'),
+    path.join(WINDOW_SAFETY_ROOT, 'venv/Scripts/python.exe'),
+    path.join(__dirname, '../../.venv/Scripts/python.exe'),
+  ],
+  scriptPath: path.join(WINDOW_SAFETY_ROOT, 'bus_safety_demo.py'),
+  cwd: WINDOW_SAFETY_ROOT,
+  startupGraceMs: 1200,
 };
+
+function canRunPython(candidate) {
+  const result = spawnSync(candidate, ['-c', 'import sys; print(sys.executable)'], {
+    encoding: 'utf8',
+    timeout: 5000,
+    windowsHide: true,
+  });
+
+  return {
+    ok: result.status === 0,
+    error: (result.stderr || result.error?.message || '').trim(),
+  };
+}
+
+function resolvePythonPath() {
+  const overridePath = process.env.WINDOW_SAFETY_PYTHON;
+  if (overridePath && existsSync(overridePath)) {
+    const check = canRunPython(overridePath);
+    if (check.ok) return { path: overridePath, errors: [] };
+    return { path: null, errors: [`${overridePath}: ${check.error || 'not runnable'}`] };
+  }
+
+  const errors = [];
+
+  for (const candidate of MODEL_CONFIG.pythonCandidates) {
+    if (!existsSync(candidate)) {
+      errors.push(`${candidate}: missing`);
+      continue;
+    }
+
+    const check = canRunPython(candidate);
+    if (check.ok) return { path: candidate, errors };
+    errors.push(`${candidate}: ${check.error || 'not runnable'}`);
+  }
+
+  return { path: null, errors };
+}
 
 // POST - Start model process
 export const startModel = (req, res) => {
@@ -41,9 +86,27 @@ export const startModel = (req, res) => {
     }
   }
 
+  const pythonResolution = resolvePythonPath();
+  const pythonPath = pythonResolution.path;
+  if (!pythonPath) {
+    return res.status(500).json({
+      success: false,
+      error: 'Python environment not runnable for window safety',
+      details: pythonResolution.errors.join('\n'),
+    });
+  }
+
+  if (!existsSync(MODEL_CONFIG.cwd) || !existsSync(MODEL_CONFIG.scriptPath)) {
+    return res.status(500).json({
+      success: false,
+      error: 'Window safety script path is invalid',
+      details: `script=${MODEL_CONFIG.scriptPath}`,
+    });
+  }
+
   try {
     console.log(`🪟 Starting window safety model for driver ${driverId}...`);
-    console.log(`📁 Python: ${MODEL_CONFIG.pythonPath}`);
+    console.log(`📁 Python: ${pythonPath}`);
     console.log(`📁 Script: ${MODEL_CONFIG.scriptPath}`);
     console.log(`📁 CWD: ${MODEL_CONFIG.cwd}`);
 
@@ -53,11 +116,30 @@ export const startModel = (req, res) => {
       args.push('--phone_ip', phone_ip);
     }
 
-    const modelProcess = spawn(MODEL_CONFIG.pythonPath, args, {
+    const modelProcess = spawn(pythonPath, args, {
       cwd: MODEL_CONFIG.cwd,
       detached: false,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
+
+    let startupSettled = false;
+    let startupTimer = null;
+
+    const failStartup = (error, details) => {
+      if (startupSettled) return;
+      startupSettled = true;
+
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+        startupTimer = null;
+      }
+
+      modelProcesses.delete(driverId);
+      driverSystemEnabled.set(driverId, false);
+
+      return res.status(500).json({ success: false, error, details });
+    };
 
     modelProcess.stdout.on('data', (data) => {
       console.log(`[WindowSafety ${driverId}] ${data.toString().trim()}`);
@@ -70,22 +152,36 @@ export const startModel = (req, res) => {
     modelProcess.on('close', (code) => {
       console.log(`[WindowSafety ${driverId}] Process exited with code ${code}`);
       modelProcesses.delete(driverId);
+
+      if (!startupSettled) {
+        failStartup('Window safety model exited during startup', `Exit code ${code}`);
+      }
     });
 
     modelProcess.on('error', (err) => {
       console.error(`[WindowSafety ${driverId}] Error: ${err.message}`);
       modelProcesses.delete(driverId);
+
+      if (!startupSettled) {
+        failStartup('Failed to start window safety model', err.message);
+      }
     });
 
-    modelProcesses.set(driverId, modelProcess);
-    driverSystemEnabled.set(driverId, true);
+    startupTimer = setTimeout(() => {
+      if (startupSettled) return;
+      startupSettled = true;
+      startupTimer = null;
 
-    res.json({
-      success: true,
-      running: true,
-      message: 'Window safety model started successfully',
-      pid: modelProcess.pid
-    });
+      modelProcesses.set(driverId, modelProcess);
+      driverSystemEnabled.set(driverId, true);
+
+      res.json({
+        success: true,
+        running: true,
+        message: 'Window safety model started successfully',
+        pid: modelProcess.pid
+      });
+    }, MODEL_CONFIG.startupGraceMs);
   } catch (error) {
     console.error('Error starting window safety model:', error);
     res.status(500).json({ success: false, error: error.message });

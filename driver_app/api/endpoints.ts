@@ -35,6 +35,9 @@ export const API_ENDPOINTS = {
   DRIVER_MODEL_START: '/driver-monitor/model/start',
   DRIVER_MODEL_STOP: '/driver-monitor/model/stop',
   DRIVER_MODEL_STATUS: '/driver-monitor/model/status',
+  DRIVER_MODEL_CALIBRATE: '/driver-monitor/model/calibrate',
+  DRIVER_MODEL_CALIBRATION_RETRY: '/driver-monitor/model/calibration/retry',
+  DRIVER_MODEL_CALIBRATION_STATUS: '/driver-monitor/model/calibration/status',
 
   // Window Safety
   WINDOW_SAFETY_STATUS: '/window-safety/status',

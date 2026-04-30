@@ -5,10 +5,28 @@ import requests
 import time
 import os
 import sys
+from pathlib import Path
 from ultralytics import YOLO
 from datetime import datetime
 
 import argparse
+
+
+def _attach_repo_root():
+    this_file = Path(__file__).resolve()
+    for parent in this_file.parents:
+        if (parent / "shared_network_config.py").exists():
+            root_path = str(parent)
+            if root_path not in sys.path:
+                sys.path.append(root_path)
+            return
+
+
+_attach_repo_root()
+
+from shared_network_config import build_phone_video_url, load_network_config
+
+NETWORK_CONFIG = load_network_config()
 
 # ---------------------------------------------------------------------------
 # SOUND ALERT — plays alert.wav (non-blocking) on each detection
@@ -48,9 +66,9 @@ def play_alert_sound(detection_class: str = "default") -> None:
 # ---------------------------------------------------------------------------
 
 # --- DEFAULT CONFIGURATION ---
-DEFAULT_SERVER_URL = "http://localhost:5000/api/window-safety"
-DEFAULT_DRIVER_ID = "8c394627-e397-4bd5-928f-4cc66cfebac1"
-DEFAULT_PHONE_IP = "10.60.136.249:8080"  # Match footboard safety default
+DEFAULT_SERVER_URL = NETWORK_CONFIG["WINDOW_SAFETY_SERVER_URL"]
+DEFAULT_DRIVER_ID = NETWORK_CONFIG["DRIVER_ID"]
+DEFAULT_PHONE_IP = NETWORK_CONFIG["PHONE_IP"]
 
 # Initialize parser
 parser = argparse.ArgumentParser(description="Window Safety Monitoring System")
@@ -63,7 +81,7 @@ args = parser.parse_args()
 SERVER_URL = args.server_url
 DRIVER_ID = args.driver_id
 PHONE_IP = args.phone_ip
-VIDEO_URL = f"http://{PHONE_IP}/video"
+VIDEO_URL = build_phone_video_url(PHONE_IP)
 
 # --- GPU ACCELERATION ---
 DEVICE = 0 if torch.cuda.is_available() else 'cpu'

@@ -1,0 +1,30 @@
+{
+  "camera_index": 0,
+  "frame_width": 640,
+  "frame_height": 480,
+  "saved_at": "2026-04-23T18:20:54.120079Z",
+  "profile": {
+    "baseline_ear": 0.15349431335926056,
+    "baseline_yaw": 7.737911224365234,
+    "baseline_pitch": -59.66518020629883,
+    "baseline_mar": 0.3596622049808502,
+    "baseline_gaze_h": 0.5106397867202759,
+    "baseline_gaze_v": 0.4371870756149292,
+    "max_left_span": 24.085916137695314,
+    "max_right_span": 22.95962944030762,
+    "baseline_eye_visibility": 0.9492206573486328,
+    "baseline_ear_confidence": 0.9855502247810364,
+    "negative_mirror_gaze_range": null,
+    "positive_mirror_gaze_range": null,
+    "negative_mirror_yaw_range": null,
+    "positive_mirror_yaw_range": null,
+    "left_mirror_gaze_range": null,
+    "right_mirror_gaze_range": null,
+    "mirror_reference_yaw": null,
+    "angle_factor": 0.4144173009055001,
+    "ear_fatigue_threshold": 0.1393064473191191,
+    "ear_closed_threshold": 0.12639079525991137,
+    "mar_yawn_threshold": 0.4631864406902651,
+    "blink_threshold": 0.13253056779428177
+  }
+}
