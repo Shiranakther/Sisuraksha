@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getFootboardLiveState, updateFootboardLiveState } from '../realtime/footboardLive.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -256,6 +257,8 @@ export const getSystemStatus = (req, res) => {
 
   const lastHeartbeat = driverHeartbeats.get(driverId);
   const isEnabled = driverSystemEnabled.get(driverId) !== false;
+  const modelProcess = modelProcesses.get(driverId);
+  const isModelRunning = modelProcess && !modelProcess.killed;
   let systemStatus = 'offline';
 
   if (lastHeartbeat) {
@@ -263,6 +266,9 @@ export const getSystemStatus = (req, res) => {
     if (timeSinceHeartbeat < 10000) {
       systemStatus = 'online';
     }
+  }
+  if (systemStatus === 'offline' && isModelRunning) {
+    systemStatus = 'online';
   }
 
   res.json({
@@ -272,6 +278,16 @@ export const getSystemStatus = (req, res) => {
     lastHeartbeat: lastHeartbeat ? lastHeartbeat.toISOString() : null,
     uptime: lastHeartbeat ? Math.floor((Date.now() - lastHeartbeat.getTime()) / 1000) : null
   });
+};
+
+export const receiveLiveState = (req, res) => {
+  const state = updateFootboardLiveState(req.body);
+  driverHeartbeats.set(req.body.driver_id || 'default', new Date());
+  res.status(200).json({ success: true, data: state });
+};
+
+export const getLiveState = (req, res) => {
+  res.json(getFootboardLiveState());
 };
 
 export const toggleSystem = (req, res) => {

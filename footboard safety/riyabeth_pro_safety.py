@@ -3,6 +3,7 @@ import threading
 import time
 import requests
 import numpy as np
+import queue
 from dataclasses import dataclass, field
 from datetime import datetime
 from ultralytics import YOLO
@@ -88,12 +89,27 @@ app = Flask(__name__)
 current_speed_kmh = 0.0
 ir_sensor_state = {"s1": False, "s2": False, "s3": False, "online": False}
 ir_state_lock = threading.Lock()
+speed_sensor_state = {
+    "speed_kmh": 0.0,
+    "rpm": 0.0,
+    "pulses": 0,
+    "pulses_per_sec": 0.0,
+    "moving": False,
+    "online": False,
+    "updated_at": 0.0,
+}
+speed_state_lock = threading.Lock()
 last_ir_webhook_state = (False, False, False)
 last_ir_alert_time = 0.0
 IR_WEBHOOK_ALERT_COOLDOWN = 0.8
+SPEED_SENSOR_STALE_SECONDS = 6.0
+ESP32_DATA_POLL_INTERVAL = 0.5
+ESP32_DATA_MAX_MISSES = 8
+PHONE_GPS_FALLBACK_AFTER_SECONDS = 20.0
 
 # Use a session to prevent TCP socket exhaustion (TIME_WAIT)
 http_session = requests.Session()
+alert_queue = queue.Queue(maxsize=100)
 
 
 @dataclass
@@ -120,6 +136,22 @@ def parse_bool(value):
     return False
 
 
+def parse_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def build_esp32_data_url(esp_ip):
+    esp_ip = (esp_ip or "").strip()
+    if not esp_ip:
+        return ""
+    if esp_ip.startswith(("http://", "https://")):
+        return f"{esp_ip.rstrip('/')}/data"
+    return f"http://{esp_ip}/data"
+
+
 def get_step_label(s1, s2, s3):
     if s3:
         return "Bottom Step"
@@ -139,25 +171,48 @@ def send_heartbeat():
             pass
         time.sleep(5)
 
+
+def alert_sender_worker():
+    """Persist alerts in the background so DB/network latency cannot stall detection."""
+    while True:
+        payload = alert_queue.get()
+        try:
+            response = http_session.post(f"{SERVER_URL}/alerts", json=payload, timeout=2)
+            if response.status_code == 201:
+                print(f"[OK] Alert saved: {payload['status']}")
+            else:
+                print(f"[WARN] Alert save returned {response.status_code}")
+        except Exception as e:
+            print(f"[ERROR] Failed to save alert: {e}")
+        finally:
+            alert_queue.task_done()
+
+
 def send_alert(alert_type, status, speed, confidence, message):
-    """Send safety alert to server"""
+    """Queue safety alert for backend/database storage."""
+    payload = {
+        "driver_id": DRIVER_ID,
+        "timestamp": datetime.now().isoformat(),
+        "alert_type": alert_type,
+        "status": status,
+        "speed": round(speed, 2),
+        "confidence": round(confidence, 3),
+        "message": message,
+        "sound": status in {"CRITICAL", "WARNING"},
+        "detection_class": alert_type
+    }
+
     try:
-        payload = {
-            "driver_id": DRIVER_ID,
-            "timestamp": datetime.now().isoformat(),
-            "alert_type": alert_type,
-            "status": status,
-            "speed": round(speed, 2),
-            "confidence": round(confidence, 3),
-            "message": message,
-            "sound": status in {"CRITICAL", "WARNING"},
-            "detection_class": alert_type  # Passing source as detection class
-        }
-        response = http_session.post(f"{SERVER_URL}/alerts", json=payload, timeout=2)
-        if response.status_code == 201:
-            print(f"[OK] Alert sent: {status}")
-    except Exception as e:
-        print(f"[ERROR] Failed to send alert: {e}")
+        alert_queue.put_nowait(payload)
+        print(f"[QUEUE] Alert queued: {status}")
+    except queue.Full:
+        try:
+            alert_queue.get_nowait()
+            alert_queue.task_done()
+            alert_queue.put_nowait(payload)
+            print(f"[QUEUE] Alert queue full - dropped oldest, queued: {status}")
+        except queue.Empty:
+            pass
 
 def send_ir_webhook_alert(s1, s2, s3, risk_level):
     """Forward ESP32 IR changes immediately, even if the camera stream is unavailable."""
@@ -174,7 +229,15 @@ def send_ir_webhook_alert(s1, s2, s3, risk_level):
         )
         return
 
-    is_moving = current_speed_kmh > 5.0
+    now = time.time()
+    with speed_state_lock:
+        hall_speed_fresh = (
+            speed_sensor_state["online"]
+            and now - speed_sensor_state["updated_at"] <= SPEED_SENSOR_STALE_SECONDS
+        )
+        hall_moving = hall_speed_fresh and speed_sensor_state["moving"]
+
+    is_moving = hall_moving if hall_speed_fresh else current_speed_kmh > 5.0
     status = "CRITICAL" if s3 or is_moving or risk_level >= 3 else "WARNING"
     alert_type = f"IR Sensors Only ({step_label})"
     message = (
@@ -216,16 +279,115 @@ def receive_ir_event():
         print(f"[ESP32 PUSH ERROR] {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route('/speed-webhook', methods=['POST'])
+def receive_speed_event():
+    global current_speed_kmh
+    try:
+        data = request.get_json(silent=True)
+        if data is not None and "speed_kmh" in data:
+            speed_kmh = max(0.0, parse_float(data.get("speed_kmh", 0.0)))
+            rpm = max(0.0, parse_float(data.get("rpm", 0.0)))
+            pulses = max(0, int(parse_float(data.get("pulses", 0), 0)))
+            pulses_per_sec = max(0.0, parse_float(data.get("pulses_per_sec", 0.0)))
+            moving = parse_bool(data.get("moving", speed_kmh > 0.1))
+
+            current_speed_kmh = speed_kmh
+            with speed_state_lock:
+                speed_sensor_state["speed_kmh"] = speed_kmh
+                speed_sensor_state["rpm"] = rpm
+                speed_sensor_state["pulses"] = pulses
+                speed_sensor_state["pulses_per_sec"] = pulses_per_sec
+                speed_sensor_state["moving"] = moving
+                speed_sensor_state["online"] = True
+                speed_sensor_state["updated_at"] = time.time()
+
+            print(
+                f"[ESP32 PUSH] Speed | {speed_kmh:.2f} km/h | "
+                f"RPM:{rpm:.1f} | Moving:{moving}"
+            )
+            return jsonify({"status": "success", "message": "Speed updated"}), 200
+        else:
+            return jsonify({"status": "error", "message": "Invalid payload"}), 400
+    except Exception as e:
+        print(f"[ESP32 SPEED PUSH ERROR] {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 def run_webhook_server():
     import logging
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR) # Suppress standard flask output
     app.run(host='0.0.0.0', port=WEBHOOK_PORT, debug=False, use_reloader=False)
 
-# --- MULTITHREADED SENSOR FETCHING (GPS) ---
+
+def update_from_esp32_dashboard():
+    """Fallback live state path: poll ESP32 /data if webhook pushes are missed."""
+    global current_speed_kmh
+
+    esp32_data_url = build_esp32_data_url(ESP_IP)
+    if not esp32_data_url:
+        return
+
+    misses = 0
+    while True:
+        try:
+            response = http_session.get(esp32_data_url, timeout=0.8)
+            response.raise_for_status()
+            data = response.json()
+
+            s1 = parse_bool(data.get("s1", False))
+            s2 = parse_bool(data.get("s2", False))
+            s3 = parse_bool(data.get("s3", False))
+            speed_kmh = max(0.0, parse_float(data.get("speed_kmh", current_speed_kmh)))
+            rpm = max(0.0, parse_float(data.get("rpm", 0.0)))
+            pulses = max(0, int(parse_float(data.get("pulses", 0), 0)))
+            pulses_per_sec = max(0.0, parse_float(data.get("pulses_per_sec", 0.0)))
+            moving = parse_bool(data.get("moving", speed_kmh > 0.1))
+            now = time.time()
+
+            with ir_state_lock:
+                ir_sensor_state["s1"] = s1
+                ir_sensor_state["s2"] = s2
+                ir_sensor_state["s3"] = s3
+                ir_sensor_state["online"] = True
+
+            current_speed_kmh = speed_kmh
+            with speed_state_lock:
+                speed_sensor_state["speed_kmh"] = speed_kmh
+                speed_sensor_state["rpm"] = rpm
+                speed_sensor_state["pulses"] = pulses
+                speed_sensor_state["pulses_per_sec"] = pulses_per_sec
+                speed_sensor_state["moving"] = moving
+                speed_sensor_state["online"] = True
+                speed_sensor_state["updated_at"] = now
+
+            misses = 0
+        except Exception:
+            misses += 1
+            if misses >= ESP32_DATA_MAX_MISSES:
+                with ir_state_lock:
+                    ir_sensor_state["online"] = False
+                with speed_state_lock:
+                    speed_sensor_state["online"] = False
+
+        time.sleep(ESP32_DATA_POLL_INTERVAL)
+
+
+# --- MULTITHREADED SENSOR FETCHING (PHONE GPS FALLBACK) ---
 def update_sensors():
     global current_speed_kmh
     while True:
+        now = time.time()
+        with speed_state_lock:
+            last_esp32_speed_at = speed_sensor_state["updated_at"]
+            esp32_speed_seen = last_esp32_speed_at > 0
+            esp32_speed_recent = esp32_speed_seen and now - last_esp32_speed_at <= PHONE_GPS_FALLBACK_AFTER_SECONDS
+
+        if esp32_speed_recent:
+            time.sleep(0.5)
+            continue
+
         try:
             # Fetch sensor data from IP Webcam app
             response = http_session.get(SENSOR_URL, timeout=0.5)
@@ -462,10 +624,17 @@ def draw_ai_boxes(frame, boxes):
             2,
         )
 
-# Start the Speed Tracker Thread
+# Start the phone GPS fallback speed tracker.
+# ESP32 Hall speed is primary when /speed-webhook is receiving fresh data.
 threading.Thread(target=update_sensors, daemon=True).start()
 
-# Start the Flask Webhook for ESP32 IR Sensor Pushes
+# Poll ESP32 /data as a backup for the Python/OpenCV window.
+threading.Thread(target=update_from_esp32_dashboard, daemon=True).start()
+
+# Persist alerts without blocking camera inference, webhooks, or display updates.
+threading.Thread(target=alert_sender_worker, daemon=True).start()
+
+# Start the Flask Webhook for ESP32 IR and speed pushes
 threading.Thread(target=run_webhook_server, daemon=True).start()
 
 # Start the Heartbeat Thread (sends status to server)
@@ -483,10 +652,12 @@ print(f"RiyaNeth Camera Source: {CAMERA_SOURCE}")
 print(f"Video URL: {VIDEO_URL}")
 if CAMERA_SOURCE == "phone":
     print(f"Phone sensor URL: {SENSOR_URL}")
-print(f"IR Sensor Webhook Listening on Port {WEBHOOK_PORT}")
+print(f"ESP32 Webhooks Listening on Port {WEBHOOK_PORT}")
+print("IR endpoint: /ir-webhook | Speed endpoint: /speed-webhook")
 print(f"Configured ESP32 IR IP: {ESP_IP}")
+print(f"ESP32 fallback data URL: {build_esp32_data_url(ESP_IP)}")
 print(f"Display: {DISPLAY_SIZE[0]}x{DISPLAY_SIZE[1]} | YOLO imgsz={AI_IMGSZ} | conf={AI_CONF:.2f} | AI interval={AI_INTERVAL:.2f}s")
-print("Logic: ALERT if Speed > 5km/h AND (AI sees person OR IR is blocked).")
+print("Logic: ALERT if Hall says bus moving, or GPS speed > 5km/h, AND footboard is occupied.")
 
 while True:
     frame, frame_id, frame_time, camera_fps = cam.get_frame()
@@ -518,14 +689,33 @@ while True:
     with ir_state_lock:
         current_ir_state = dict(ir_sensor_state)
 
+    current_time = time.time()
+    with speed_state_lock:
+        hall_speed_fresh = (
+            speed_sensor_state["online"]
+            and current_time - speed_sensor_state["updated_at"] <= SPEED_SENSOR_STALE_SECONDS
+        )
+        hall_moving = hall_speed_fresh and speed_sensor_state["moving"]
+
+    if hall_speed_fresh:
+        speed_source_label = "Hall ESP32"
+        speed_source_active = True
+    elif current_speed_kmh > 0:
+        speed_source_label = "Phone GPS"
+        speed_source_active = True
+    else:
+        speed_source_label = "Waiting"
+        speed_source_active = False
+
     ir_occupied = current_ir_state["s1"] or current_ir_state["s2"] or current_ir_state["s3"]
     ir_danger = current_ir_state["s3"] # Bottom step is immediate danger
     
     # Combined Safety State
     footboard_occupied = yolo_occupied or ir_occupied
 
-    # Unsafe condition: Movement > 5km/h while steps are occupied (or step 3 is blocked)
-    is_moving = current_speed_kmh > 5.0
+    # Hall sensor movement is primary because it reacts as soon as pulses arrive.
+    # Phone GPS remains a fallback when Hall speed data is stale.
+    is_moving = hall_moving if hall_speed_fresh else current_speed_kmh > 5.0
     
     # Determine alert source identity for the dashboard
     detection_source = "Safe"
@@ -547,8 +737,6 @@ while True:
             elif current_ir_state["s2"]: detection_source += " (Mid Step)"
             elif current_ir_state["s1"]: detection_source += " (Top Step)"
     
-    current_time = time.time()
-
     # --- Build step-specific label for message (S1=Entry, S2=Mid, S3=Bottom) ---
     active_ir_steps = []
     if current_ir_state.get("s1"): active_ir_steps.append("S1-Entry")
@@ -604,8 +792,8 @@ while True:
     # Hardware / AI Status Indicator
     cv2.putText(annotated_frame, f"IR: {'ON' if current_ir_state['online'] else 'OFF'}", (20, 100),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if current_ir_state['online'] else (0, 0, 255), 2)
-    cv2.putText(annotated_frame, f"GPS Speed: {'Active' if current_speed_kmh > 0 else 'Waiting'}", (20, 130), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if current_speed_kmh > 0 else (0, 200, 255), 2)
+    cv2.putText(annotated_frame, f"Speed: {speed_source_label} ({current_speed_kmh:.1f} km/h)", (20, 130),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if speed_source_active else (0, 200, 255), 2)
 
     # FPS Display
     curr_time = time.time()
@@ -621,7 +809,7 @@ while True:
         cv2.putText(annotated_frame, "CAMERA STALE", (DISPLAY_SIZE[0] - 180, 160),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-    cv2.imshow("RiyaNeth: AI + GPS Integrated Monitor", annotated_frame)
+    cv2.imshow("RiyaNeth: AI + Speed Integrated Monitor", annotated_frame)
     
     if cv2.waitKey(1) & 0xFF == ord('q'):
         cam.release()

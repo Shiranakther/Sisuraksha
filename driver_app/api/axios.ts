@@ -2,16 +2,16 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { tokenService } from './storage';
 import { router } from 'expo-router';
 import { API_ENDPOINTS } from './endpoints';
+import { API_BASE_URL } from './networkConfig';
+export { API_BASE_URL, API_ORIGIN_URL, WS_ORIGIN_URL } from './networkConfig';
 
 interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
 }
 
 
-const BASE_URL = 'http://192.168.1.102:5000/api';
-
 const apiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: API_BASE_URL,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -46,7 +46,7 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
       try {
         const response = await axios.post<{ token: string }>(
-          `${BASE_URL}${API_ENDPOINTS.REFRESH}`,
+          `${API_BASE_URL}${API_ENDPOINTS.REFRESH}`,
           {},
           { withCredentials: true }
         );

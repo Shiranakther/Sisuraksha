@@ -2,16 +2,20 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import apiClient from '../../api/axios';
+import apiClient, { WS_ORIGIN_URL } from '../../api/axios';
 import { API_ENDPOINTS } from '../../api/endpoints';
+import { NETWORK_CONFIG } from '../../api/networkConfig';
 import { StatCard } from '../ui/stat-card';
 import { AlertTimelineItem, TimelineGroup } from '../ui/alert-timeline';
 
-const FOOTBOARD_ESP_IP = '192.168.1.104';
-const LIVE_SENSOR_POLL_MS = 250;
-const LIVE_SENSOR_TIMEOUT_MS = 600;
+const FOOTBOARD_ESP_IP = NETWORK_CONFIG.FOOTBOARD_ESP_IP;
+const LIVE_SENSOR_POLL_MS = 200;
+const LIVE_SENSOR_TIMEOUT_MS = 900;
+const LIVE_SENSOR_MAX_MISSES = 10;
 const LIVE_ALARM_COOLDOWN_MS = 1500;
-const LIVE_STREAM_STALE_MS = 1200;
+const LIVE_WS_STALE_MS = 1000;
+const LIVE_WS_RECONNECT_MS = 1000;
+const MODEL_START_MAX_WAIT_MS = 30000;
 
 interface SafetyAlert {
   id: number;
@@ -40,6 +44,8 @@ type SensorSteps = { s1: boolean; s2: boolean; s3: boolean };
 interface LiveSensorState extends SensorSteps {
   online: boolean;
   updatedAt: string | null;
+  speedKmh: number;
+  moving: boolean;
 }
 
 // ---------- Alert helpers ----------
@@ -110,10 +116,13 @@ export default function FootboardMonitor() {
     s3: false,
     online: false,
     updatedAt: null,
+    speedKmh: 0,
+    moving: false,
   });
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
+  const [isStartingModel, setIsStartingModel] = useState(false);
 
   // Settings
   const [showSettings, setShowSettings] = useState(false);
@@ -124,7 +133,10 @@ export default function FootboardMonitor() {
   const lastAlertId = useRef<number | null>(null);
   const lastLiveOccupied = useRef(false);
   const lastLiveAlarmAt = useRef(0);
-  const lastLiveStreamAt = useRef(0);
+  const liveSensorMisses = useRef(0);
+  const livePollInFlight = useRef(false);
+  const lastLiveWsAt = useRef(0);
+  const startupRequestedAt = useRef<number | null>(null);
   const monitoringActiveRef = useRef(false);
 
   useEffect(() => {
@@ -132,16 +144,38 @@ export default function FootboardMonitor() {
 
     if (!modelStatus.running) {
       lastLiveOccupied.current = false;
-      lastLiveStreamAt.current = 0;
+      liveSensorMisses.current = 0;
+      livePollInFlight.current = false;
+      lastLiveWsAt.current = 0;
       setLiveSensorState({
         s1: false,
         s2: false,
         s3: false,
         online: false,
         updatedAt: null,
+        speedKmh: 0,
+        moving: false,
       });
     }
   }, [modelStatus.running]);
+
+  useEffect(() => {
+    if (!isStartingModel || startupRequestedAt.current === null) {
+      return;
+    }
+
+    const heartbeatTime = systemStatus.lastHeartbeat
+      ? new Date(systemStatus.lastHeartbeat).getTime()
+      : 0;
+    const hasFreshHeartbeat =
+      Number.isFinite(heartbeatTime) && heartbeatTime >= startupRequestedAt.current;
+    const startupTimedOut = Date.now() - startupRequestedAt.current >= MODEL_START_MAX_WAIT_MS;
+
+    if (hasFreshHeartbeat || startupTimedOut) {
+      setIsStartingModel(false);
+      startupRequestedAt.current = null;
+    }
+  }, [isStartingModel, systemStatus.lastHeartbeat]);
 
   // Pre-load sound once on mount
   useEffect(() => {
@@ -191,15 +225,18 @@ export default function FootboardMonitor() {
     }
   }, []);
 
-  const applyLiveSensorData = useCallback((data: Partial<SensorSteps>) => {
+  const applyLiveSensorData = useCallback((data: Partial<SensorSteps> & { speed_kmh?: number; moving?: boolean }) => {
     if (!monitoringActiveRef.current) return;
 
+    const speedKmh = Number(data.speed_kmh ?? 0);
     const nextSensorState = {
       s1: Boolean(data.s1),
       s2: Boolean(data.s2),
       s3: Boolean(data.s3),
       online: true,
       updatedAt: new Date().toISOString(),
+      speedKmh: Number.isFinite(speedKmh) ? speedKmh : 0,
+      moving: Boolean(data.moving),
     };
     const isOccupied = nextSensorState.s1 || nextSensorState.s2 || nextSensorState.s3;
     const now = Date.now();
@@ -214,7 +251,17 @@ export default function FootboardMonitor() {
     }
 
     lastLiveOccupied.current = isOccupied;
-    setLiveSensorState(nextSensorState);
+    setLiveSensorState(prev => {
+      const changed =
+        prev.s1 !== nextSensorState.s1 ||
+        prev.s2 !== nextSensorState.s2 ||
+        prev.s3 !== nextSensorState.s3 ||
+        prev.online !== nextSensorState.online ||
+        prev.moving !== nextSensorState.moving ||
+        Math.abs(prev.speedKmh - nextSensorState.speedKmh) >= 0.1;
+
+      return changed ? nextSensorState : prev;
+    });
   }, [playAlarm]);
 
   const fetchStatus = useCallback(async () => {
@@ -222,10 +269,6 @@ export default function FootboardMonitor() {
       const response = await apiClient.get(`${API_ENDPOINTS.SAFETY_STATUS}?driver_id=${driverId}`);
       const data = response.data;
       setSystemStatus(data);
-      // If system is offline, model can't be running — keep UI in sync
-      if (data.status === 'offline') {
-        setModelStatus({ running: false, pid: null });
-      }
     } catch (error) {
       console.error('Failed to fetch status:', error);
     }
@@ -267,8 +310,10 @@ export default function FootboardMonitor() {
 
   const fetchLiveSensorState = useCallback(async () => {
     if (!monitoringActiveRef.current) return;
+    if (livePollInFlight.current) return;
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    livePollInFlight.current = true;
     try {
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), LIVE_SENSOR_TIMEOUT_MS);
@@ -284,14 +329,19 @@ export default function FootboardMonitor() {
       }
 
       const data = await response.json();
+      liveSensorMisses.current = 0;
       applyLiveSensorData(data);
-    } catch (error) {
-      setLiveSensorState(prev => ({
-        ...prev,
-        online: false,
-      }));
+    } catch {
+      liveSensorMisses.current += 1;
+      if (liveSensorMisses.current >= LIVE_SENSOR_MAX_MISSES) {
+        setLiveSensorState(prev => ({
+          ...prev,
+          online: false,
+        }));
+      }
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      livePollInFlight.current = false;
     }
   }, [applyLiveSensorData, espIp]);
 
@@ -299,6 +349,8 @@ export default function FootboardMonitor() {
     setIsToggling(true);
     try {
       if (shouldRun) {
+        setIsStartingModel(true);
+        startupRequestedAt.current = Date.now();
         const response = await apiClient.post(API_ENDPOINTS.MODEL_START, {
           driver_id: driverId
         });
@@ -306,6 +358,8 @@ export default function FootboardMonitor() {
           setModelStatus({ running: true, pid: response.data.pid });
         }
       } else {
+        setIsStartingModel(false);
+        startupRequestedAt.current = null;
         const response = await apiClient.post(API_ENDPOINTS.MODEL_STOP, { driver_id: driverId });
         if (response.data.success) {
           setModelStatus({ running: false, pid: null });
@@ -315,6 +369,10 @@ export default function FootboardMonitor() {
       }
     } catch (error) {
       console.error('Failed to toggle model:', error);
+      if (shouldRun) {
+        setIsStartingModel(false);
+        startupRequestedAt.current = null;
+      }
       // Re-fetch to get true state from server on error
       fetchModelStatus();
     }
@@ -331,6 +389,19 @@ export default function FootboardMonitor() {
     ]);
     setRefreshing(false);
   }, [fetchStatus, fetchModelStatus, fetchAlerts, fetchLiveSensorState, modelStatus.running]);
+
+  useEffect(() => {
+    if (!isStartingModel) return;
+
+    const intervalId = setInterval(() => {
+      void fetchStatus();
+      void fetchModelStatus();
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [fetchModelStatus, fetchStatus, isStartingModel]);
 
   useEffect(() => {
     let isMounted = true;
@@ -365,87 +436,65 @@ export default function FootboardMonitor() {
   useEffect(() => {
     if (!autoRefresh || !modelStatus.running) return;
 
-    const xhr = new XMLHttpRequest();
-    let cursor = 0;
-    let buffer = '';
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
 
-    const consumeEventBlock = (block: string) => {
-      const lines = block.split(/\r?\n/);
-      const eventName = lines
-        .find(line => line.startsWith('event:'))
-        ?.slice('event:'.length)
-        .trim();
-      const dataText = lines
-        .filter(line => line.startsWith('data:'))
-        .map(line => line.slice('data:'.length).trim())
-        .join('\n');
+    const connect = () => {
+      if (stopped) return;
 
-      if (eventName !== 's' || !dataText) return;
+      ws = new WebSocket(`${WS_ORIGIN_URL}/ws/footboard-live`);
 
-      try {
-        const data = JSON.parse(dataText);
-        lastLiveStreamAt.current = Date.now();
-        applyLiveSensorData(data);
-      } catch (error) {
-        // Ignore incomplete stream fragments; the next chunk will carry a full event.
-      }
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.event !== 'footboard_live') return;
+          lastLiveWsAt.current = Date.now();
+          liveSensorMisses.current = 0;
+          applyLiveSensorData(message.data);
+        } catch {
+          // Ignore malformed live messages.
+        }
+      };
+
+      ws.onclose = () => {
+        if (stopped) return;
+        reconnectTimer = setTimeout(connect, LIVE_WS_RECONNECT_MS);
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
     };
 
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState !== XMLHttpRequest.LOADING && xhr.readyState !== XMLHttpRequest.DONE) {
-        return;
-      }
-
-      const chunk = xhr.responseText.slice(cursor);
-      cursor = xhr.responseText.length;
-      buffer += chunk;
-
-      let splitIndex = buffer.search(/\r?\n\r?\n/);
-      while (splitIndex >= 0) {
-        const block = buffer.slice(0, splitIndex).trim();
-        buffer = buffer.slice(splitIndex + (buffer[splitIndex] === '\r' ? 4 : 2));
-        if (block) consumeEventBlock(block);
-        splitIndex = buffer.search(/\r?\n\r?\n/);
-      }
-    };
-
-    xhr.onerror = () => {
-      setLiveSensorState(prev => ({ ...prev, online: false }));
-    };
-
-    xhr.open('GET', `http://${espIp}/events`, true);
-    xhr.setRequestHeader('Accept', 'text/event-stream');
-    xhr.send();
+    connect();
 
     return () => {
-      xhr.abort();
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws?.close();
     };
-  }, [applyLiveSensorData, autoRefresh, espIp, modelStatus.running]);
+  }, [applyLiveSensorData, autoRefresh, modelStatus.running]);
 
   useEffect(() => {
     let isMounted = true;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
 
-    const pollLiveSensors = async () => {
+    const pollLiveSensors = () => {
       if (!isMounted || !autoRefresh || !modelStatus.running) return;
-
-      const streamIsFresh = Date.now() - lastLiveStreamAt.current < LIVE_STREAM_STALE_MS;
-      if (!streamIsFresh) {
-        await fetchLiveSensorState();
-      }
-
-      if (isMounted && autoRefresh) {
-        timeoutId = setTimeout(pollLiveSensors, LIVE_SENSOR_POLL_MS);
-      }
+      const wsIsFresh = Date.now() - lastLiveWsAt.current < LIVE_WS_STALE_MS;
+      if (wsIsFresh) return;
+      void fetchLiveSensorState();
     };
 
     if (autoRefresh && modelStatus.running) {
       pollLiveSensors();
+      intervalId = setInterval(pollLiveSensors, LIVE_SENSOR_POLL_MS);
     }
 
     return () => {
       isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
     };
   }, [autoRefresh, fetchLiveSensorState, modelStatus.running]);
 
@@ -489,6 +538,14 @@ export default function FootboardMonitor() {
     };
   }, [alerts, groupedAlerts]);
 
+  const monitorSwitchValue = modelStatus.running || isStartingModel;
+  const monitorStatusText = isStartingModel
+    ? 'Starting'
+    : modelStatus.running ? 'Monitoring' : 'Inactive';
+  const monitorIconName: keyof typeof Ionicons.glyphMap = isStartingModel
+    ? 'hourglass-outline'
+    : modelStatus.running ? 'scan-outline' : 'eye-off-outline';
+
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -498,10 +555,12 @@ export default function FootboardMonitor() {
     ? 'OFF'
     : liveSensorState.s3
     ? 'CRITICAL'
+    : liveSensorState.moving && (liveSensorState.s1 || liveSensorState.s2)
+    ? 'CRITICAL'
     : (liveSensorState.s1 || liveSensorState.s2) ? 'WARNING' : 'SAFE';
   const liveSensorStatusText = !modelStatus.running
     ? 'Monitoring is off'
-    : liveSensorState.online ? 'Reading live ESP32 state' : 'ESP32 live state unavailable';
+    : liveSensorState.online ? 'Reading live ESP32 IR + speed state' : 'ESP32 live state unavailable';
 
   return (
     <View className="flex-1 bg-slate-100">
@@ -527,11 +586,11 @@ export default function FootboardMonitor() {
             <View className="flex-row items-center justify-between">
               <View className="flex-row items-center">
                 <View className={`w-16 h-16 rounded-2xl items-center justify-center ${modelStatus.running ? 'bg-white/20' : 'bg-white/30'}`}>
-                  {isToggling ? (
+                  {isToggling || isStartingModel ? (
                     <ActivityIndicator size={32} color="white" />
                   ) : (
                     <Ionicons
-                      name={modelStatus.running ? "scan-outline" : "eye-off-outline"}
+                      name={monitorIconName}
                       size={32}
                       color="white"
                     />
@@ -540,17 +599,20 @@ export default function FootboardMonitor() {
                 <View className="ml-4">
                   <Text className="text-white/70 text-sm uppercase tracking-wider">Footboard Area</Text>
                   <Text className="text-white text-2xl font-bold">
-                    {isToggling
+                    {isToggling && !isStartingModel
                       ? (modelStatus.running ? 'Stopping' : 'Starting')
-                      : (modelStatus.running ? 'Monitoring' : 'Inactive')}
+                      : monitorStatusText}
                   </Text>
+                  {isStartingModel && (
+                    <Text className="text-white/70 text-xs mt-1">Please wait for the system to turn on</Text>
+                  )}
                 </View>
               </View>
 
               <Switch
-                value={modelStatus.running}
+                value={monitorSwitchValue}
                 onValueChange={toggleModel}
-                disabled={isToggling}
+                disabled={isToggling || isStartingModel}
                 trackColor={{ false: 'rgba(255,255,255,0.3)', true: 'rgba(255,255,255,0.3)' }}
                 thumbColor="white"
                 style={{ transform: [{ scale: 1.2 }] }}
@@ -611,7 +673,7 @@ export default function FootboardMonitor() {
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-row items-center">
               <Ionicons name="hardware-chip-outline" size={16} color="#64748B" />
-              <Text className="text-sm font-semibold text-slate-700 ml-2">Live IR Sensor Occupation</Text>
+              <Text className="text-sm font-semibold text-slate-700 ml-2">Live IR + Speed State</Text>
             </View>
             <Text className="text-xs text-slate-400">
               {!modelStatus.running
@@ -647,6 +709,32 @@ export default function FootboardMonitor() {
                 </Text>
               </View>
             ))}
+          </View>
+          <View className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-100 flex-row items-center">
+            <View className={`w-10 h-10 rounded-xl items-center justify-center ${
+              liveSensorState.moving ? 'bg-red-100' : 'bg-emerald-100'
+            }`}>
+              <Ionicons
+                name={liveSensorState.moving ? 'speedometer-outline' : 'pause-circle-outline'}
+                size={22}
+                color={liveSensorState.moving ? '#DC2626' : '#059669'}
+              />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-xs text-slate-400 uppercase font-semibold">Bus Movement</Text>
+              <Text className="text-slate-800 font-bold">
+                {liveSensorState.moving ? 'Moving' : 'Stopped'} | {liveSensorState.speedKmh.toFixed(1)} km/h
+              </Text>
+            </View>
+            <View className={`px-2 py-1 rounded-full ${
+              liveSensorState.moving ? 'bg-red-100' : 'bg-emerald-100'
+            }`}>
+              <Text className={`text-xs font-semibold ${
+                liveSensorState.moving ? 'text-red-600' : 'text-emerald-600'
+              }`}>
+                LIVE
+              </Text>
+            </View>
           </View>
           <View className="flex-row items-center mt-3 pt-3 border-t border-slate-100">
             <Ionicons

@@ -6,6 +6,8 @@ import {
   startModel,
   stopModel,
   getModelStatus,
+  receiveLiveState,
+  getLiveState,
   createAlert,
   getAlerts,
   getCriticalAlerts,
@@ -18,6 +20,8 @@ const router = express.Router();
 router.post('/heartbeat', receiveHeartbeat);
 router.get('/status', getSystemStatus);
 router.post('/toggle', toggleSystem);
+router.post('/live-state', receiveLiveState);
+router.get('/live-state', getLiveState);
 
 // Model Control (start/stop Python process)
 router.post('/model/start', startModel);
