@@ -130,8 +130,10 @@ export default function FootboardMonitor() {
 
   // Audio Alarms
   const soundRef = useRef<Audio.Sound | null>(null);
+  const criticalSoundRef = useRef<Audio.Sound | null>(null);
   const lastAlertId = useRef<number | null>(null);
   const lastLiveOccupied = useRef(false);
+  const lastLiveMovingOccupied = useRef(false);
   const lastLiveAlarmAt = useRef(0);
   const liveSensorMisses = useRef(0);
   const livePollInFlight = useRef(false);
@@ -144,6 +146,7 @@ export default function FootboardMonitor() {
 
     if (!modelStatus.running) {
       lastLiveOccupied.current = false;
+      lastLiveMovingOccupied.current = false;
       liveSensorMisses.current = 0;
       livePollInFlight.current = false;
       lastLiveWsAt.current = 0;
@@ -190,10 +193,15 @@ export default function FootboardMonitor() {
         const { sound: initialSound } = await Audio.Sound.createAsync(
           require('../../assets/sounds/warining footboard is occupied.mp3')
         );
+        const { sound: initialCriticalSound } = await Audio.Sound.createAsync(
+          require('../../assets/sounds/Critical alert. Footboard occupied while moving. Stop the bus immediately..mp3')
+        );
         if (isMounted) {
           soundRef.current = initialSound;
+          criticalSoundRef.current = initialCriticalSound;
         } else {
           initialSound.unloadAsync();
+          initialCriticalSound.unloadAsync();
         }
       } catch (err) {
         console.error("Failed to load audio file", err);
@@ -206,24 +214,35 @@ export default function FootboardMonitor() {
       if (soundRef.current) {
         soundRef.current.unloadAsync();
       }
+      if (criticalSoundRef.current) {
+        criticalSoundRef.current.unloadAsync();
+      }
     };
   }, []);
 
-  const playAlarm = useCallback(async () => {
+  const playSound = useCallback(async (sound: Audio.Sound | null) => {
     try {
-      if (!soundRef.current) return;
-      const status = await soundRef.current.getStatusAsync();
+      if (!sound) return;
+      const status = await sound.getStatusAsync();
       if (!status.isLoaded) return;
       // Only stop if already playing — calling stopAsync on an idle sound throws
       if (status.isPlaying) {
-        await soundRef.current.stopAsync();
+        await sound.stopAsync();
       }
-      await soundRef.current.setPositionAsync(0);
-      await soundRef.current.playAsync();
+      await sound.setPositionAsync(0);
+      await sound.playAsync();
     } catch (error) {
       console.error("Couldn't play audio alarm", error);
     }
   }, []);
+
+  const playAlarm = useCallback(() => {
+    void playSound(soundRef.current);
+  }, [playSound]);
+
+  const playCriticalAlarm = useCallback(() => {
+    void playSound(criticalSoundRef.current);
+  }, [playSound]);
 
   const applyLiveSensorData = useCallback((data: Partial<SensorSteps> & { speed_kmh?: number; moving?: boolean }) => {
     if (!monitoringActiveRef.current) return;
@@ -239,18 +258,27 @@ export default function FootboardMonitor() {
       moving: Boolean(data.moving),
     };
     const isOccupied = nextSensorState.s1 || nextSensorState.s2 || nextSensorState.s3;
+    const isMovingOccupied = nextSensorState.moving && isOccupied;
     const now = Date.now();
 
     if (
+      isMovingOccupied &&
+      !lastLiveMovingOccupied.current &&
+      now - lastLiveAlarmAt.current >= LIVE_ALARM_COOLDOWN_MS
+    ) {
+      lastLiveAlarmAt.current = now;
+      playCriticalAlarm();
+    } else if (
       isOccupied &&
       !lastLiveOccupied.current &&
       now - lastLiveAlarmAt.current >= LIVE_ALARM_COOLDOWN_MS
     ) {
       lastLiveAlarmAt.current = now;
-      void playAlarm();
+      playAlarm();
     }
 
     lastLiveOccupied.current = isOccupied;
+    lastLiveMovingOccupied.current = isMovingOccupied;
     setLiveSensorState(prev => {
       const changed =
         prev.s1 !== nextSensorState.s1 ||
@@ -262,7 +290,7 @@ export default function FootboardMonitor() {
 
       return changed ? nextSensorState : prev;
     });
-  }, [playAlarm]);
+  }, [playAlarm, playCriticalAlarm]);
 
   const fetchStatus = useCallback(async () => {
     try {
