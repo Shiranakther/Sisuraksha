@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const driverHeartbeats = new Map();
 const driverSystemEnabled = new Map();
 const modelProcesses = new Map();
+const driverDetectionModes = new Map();
 
 const FOOTBOARD_ROOT = path.join(__dirname, '../../footboard safety');
 
@@ -45,6 +46,25 @@ function parseBoolean(value) {
   return false;
 }
 
+function getDetectionModes(driverId) {
+  const modes = driverDetectionModes.get(driverId) || {};
+  return {
+    aiEnabled: modes.aiEnabled !== false,
+    irEnabled: modes.irEnabled !== false,
+  };
+}
+
+function setDetectionModes(driverId, updates = {}) {
+  const current = getDetectionModes(driverId);
+  const next = {
+    aiEnabled: updates.aiEnabled === undefined ? current.aiEnabled : parseBoolean(updates.aiEnabled),
+    irEnabled: updates.irEnabled === undefined ? current.irEnabled : parseBoolean(updates.irEnabled),
+  };
+
+  driverDetectionModes.set(driverId, next);
+  return next;
+}
+
 function normalizeHardwareAlert(body) {
   const hasStepPayload = ['s1', 's2', 's3'].some(key => Object.prototype.hasOwnProperty.call(body, key));
   if (!hasStepPayload) return null;
@@ -76,8 +96,9 @@ function normalizeHardwareAlert(body) {
 }
 
 export const startModel = (req, res) => {
-  const { driver_id, camera_source, camera_url, esp32_cam_ip, phone_ip } = req.body;
+  const { driver_id, camera_source, camera_url, esp32_cam_ip, phone_ip, ai_enabled, ir_enabled } = req.body;
   const driverId = driver_id || 'default';
+  const detectionModes = setDetectionModes(driverId, { aiEnabled: ai_enabled, irEnabled: ir_enabled });
 
   if (modelProcesses.has(driverId)) {
     const existingProcess = modelProcesses.get(driverId);
@@ -119,6 +140,8 @@ export const startModel = (req, res) => {
     if (esp32_cam_ip) args.push('--esp32_cam_ip', esp32_cam_ip);
     if (camera_source) args.push('--camera_source', camera_source);
     if (camera_url) args.push('--camera_url', camera_url);
+    if (!detectionModes.aiEnabled) args.push('--disable_ai');
+    if (!detectionModes.irEnabled) args.push('--disable_ir');
 
     const modelProcess = spawn(pythonPath, args, {
       cwd: MODEL_CONFIG.cwd,
@@ -274,9 +297,37 @@ export const getSystemStatus = (req, res) => {
   res.json({
     status: systemStatus,
     enabled: isEnabled,
+    modes: getDetectionModes(driverId),
     driver_id: driverId,
     lastHeartbeat: lastHeartbeat ? lastHeartbeat.toISOString() : null,
     uptime: lastHeartbeat ? Math.floor((Date.now() - lastHeartbeat.getTime()) / 1000) : null
+  });
+};
+
+export const getDetectionModeStatus = (req, res) => {
+  const { driver_id } = req.query;
+  const driverId = driver_id || 'default';
+
+  res.json({
+    success: true,
+    driver_id: driverId,
+    ...getDetectionModes(driverId),
+  });
+};
+
+export const updateDetectionModeStatus = (req, res) => {
+  const { driver_id, ai_enabled, ir_enabled } = req.body;
+  const driverId = driver_id || 'default';
+  const modes = setDetectionModes(driverId, { aiEnabled: ai_enabled, irEnabled: ir_enabled });
+
+  console.log(
+    `[Footboard ${driverId}] Modes AI=${modes.aiEnabled ? 'ON' : 'OFF'} IR=${modes.irEnabled ? 'ON' : 'OFF'}`
+  );
+
+  res.json({
+    success: true,
+    driver_id: driverId,
+    ...modes,
   });
 };
 

@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   SAFETY_STATUS: '/safety/status',
   SAFETY_ALERTS: '/safety/alerts',
   SAFETY_STATS: '/safety/stats',
+  SAFETY_MODES: '/safety/modes',
   MODEL_START: '/safety/model/start',
   MODEL_STOP: '/safety/model/stop',
   MODEL_STATUS: '/safety/model/status',

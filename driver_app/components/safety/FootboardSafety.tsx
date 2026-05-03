@@ -31,12 +31,18 @@ interface SafetyAlert {
 interface SystemStatus {
   status: 'online' | 'offline';
   enabled: boolean;
+  modes?: DetectionModes;
   lastHeartbeat: string | null;
 }
 
 interface ModelStatus {
   running: boolean;
   pid: number | null;
+}
+
+interface DetectionModes {
+  aiEnabled: boolean;
+  irEnabled: boolean;
 }
 
 type SensorSteps = { s1: boolean; s2: boolean; s3: boolean };
@@ -97,7 +103,9 @@ const getAlertTitle = (alertType: string | null, status: string | null): string 
     return 'IR Sensor Triggered';
   }
   if (type.includes('AI + IR'))       return 'Critical: AI + IR Sensors Triggered';
-  if (type.includes('AI Vision Only')) return 'AI Vision: Person on Footboard';
+  if (type.includes('AI Vision Only')) return status === 'CRITICAL'
+    ? 'Critical: AI Vision Footboard Danger'
+    : 'AI Vision: Person on Footboard';
   if (status === 'CRITICAL') return 'Critical Alert';
   if (status === 'WARNING')  return 'Warning Detected';
   if (status === 'SAFE')     return 'Area Clear';
@@ -123,6 +131,8 @@ export default function FootboardMonitor() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
   const [isStartingModel, setIsStartingModel] = useState(false);
+  const [detectionModes, setDetectionModes] = useState<DetectionModes>({ aiEnabled: true, irEnabled: true });
+  const [isUpdatingModes, setIsUpdatingModes] = useState(false);
 
   // Settings
   const [showSettings, setShowSettings] = useState(false);
@@ -140,6 +150,7 @@ export default function FootboardMonitor() {
   const lastLiveWsAt = useRef(0);
   const startupRequestedAt = useRef<number | null>(null);
   const monitoringActiveRef = useRef(false);
+  const detectionModesRef = useRef<DetectionModes>({ aiEnabled: true, irEnabled: true });
 
   useEffect(() => {
     monitoringActiveRef.current = modelStatus.running;
@@ -161,6 +172,21 @@ export default function FootboardMonitor() {
       });
     }
   }, [modelStatus.running]);
+
+  useEffect(() => {
+    detectionModesRef.current = detectionModes;
+
+    if (!detectionModes.irEnabled) {
+      lastLiveOccupied.current = false;
+      lastLiveMovingOccupied.current = false;
+      setLiveSensorState(prev => ({
+        ...prev,
+        s1: false,
+        s2: false,
+        s3: false,
+      }));
+    }
+  }, [detectionModes]);
 
   useEffect(() => {
     if (!isStartingModel || startupRequestedAt.current === null) {
@@ -246,12 +272,13 @@ export default function FootboardMonitor() {
 
   const applyLiveSensorData = useCallback((data: Partial<SensorSteps> & { speed_kmh?: number; moving?: boolean }) => {
     if (!monitoringActiveRef.current) return;
+    const irEnabled = detectionModesRef.current.irEnabled;
 
     const speedKmh = Number(data.speed_kmh ?? 0);
     const nextSensorState = {
-      s1: Boolean(data.s1),
-      s2: Boolean(data.s2),
-      s3: Boolean(data.s3),
+      s1: irEnabled && Boolean(data.s1),
+      s2: irEnabled && Boolean(data.s2),
+      s3: irEnabled && Boolean(data.s3),
       online: true,
       updatedAt: new Date().toISOString(),
       speedKmh: Number.isFinite(speedKmh) ? speedKmh : 0,
@@ -297,10 +324,51 @@ export default function FootboardMonitor() {
       const response = await apiClient.get(`${API_ENDPOINTS.SAFETY_STATUS}?driver_id=${driverId}`);
       const data = response.data;
       setSystemStatus(data);
+      if (data?.modes) {
+        setDetectionModes({
+          aiEnabled: data.modes.aiEnabled !== false,
+          irEnabled: data.modes.irEnabled !== false,
+        });
+      }
     } catch (error) {
       console.error('Failed to fetch status:', error);
     }
   }, [driverId]);
+
+  const fetchDetectionModes = useCallback(async () => {
+    try {
+      const response = await apiClient.get(`${API_ENDPOINTS.SAFETY_MODES}?driver_id=${driverId}`);
+      setDetectionModes({
+        aiEnabled: response.data.aiEnabled !== false,
+        irEnabled: response.data.irEnabled !== false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch detection modes:', error);
+    }
+  }, [driverId]);
+
+  const updateDetectionModes = useCallback(async (updates: Partial<DetectionModes>) => {
+    const nextModes = { ...detectionModesRef.current, ...updates };
+    setDetectionModes(nextModes);
+    setIsUpdatingModes(true);
+
+    try {
+      const response = await apiClient.post(API_ENDPOINTS.SAFETY_MODES, {
+        driver_id: driverId,
+        ai_enabled: nextModes.aiEnabled,
+        ir_enabled: nextModes.irEnabled,
+      });
+      setDetectionModes({
+        aiEnabled: response.data.aiEnabled !== false,
+        irEnabled: response.data.irEnabled !== false,
+      });
+    } catch (error) {
+      console.error('Failed to update detection modes:', error);
+      fetchDetectionModes();
+    } finally {
+      setIsUpdatingModes(false);
+    }
+  }, [driverId, fetchDetectionModes]);
 
   const fetchModelStatus = useCallback(async () => {
     try {
@@ -324,7 +392,9 @@ export default function FootboardMonitor() {
           const isSensorAlert = (latestAlert.alert_type || '').includes('IR Sensors');
 
           if (lastAlertId.current !== null && latestAlert.id !== lastAlertId.current && !isSensorAlert) {
-            if (latestAlert.status === 'CRITICAL' || latestAlert.status === 'WARNING') {
+            if (latestAlert.status === 'CRITICAL') {
+              playCriticalAlarm();
+            } else if (latestAlert.status === 'WARNING') {
               playAlarm();
             }
           }
@@ -334,7 +404,7 @@ export default function FootboardMonitor() {
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
     }
-  }, [driverId, playAlarm]);
+  }, [driverId, playAlarm, playCriticalAlarm]);
 
   const fetchLiveSensorState = useCallback(async () => {
     if (!monitoringActiveRef.current) return;
@@ -380,7 +450,9 @@ export default function FootboardMonitor() {
         setIsStartingModel(true);
         startupRequestedAt.current = Date.now();
         const response = await apiClient.post(API_ENDPOINTS.MODEL_START, {
-          driver_id: driverId
+          driver_id: driverId,
+          ai_enabled: detectionModesRef.current.aiEnabled,
+          ir_enabled: detectionModesRef.current.irEnabled,
         });
         if (response.data.success) {
           setModelStatus({ running: true, pid: response.data.pid });
@@ -412,11 +484,12 @@ export default function FootboardMonitor() {
     await Promise.all([
       fetchStatus(),
       fetchModelStatus(),
+      fetchDetectionModes(),
       fetchAlerts(),
       ...(modelStatus.running ? [fetchLiveSensorState()] : []),
     ]);
     setRefreshing(false);
-  }, [fetchStatus, fetchModelStatus, fetchAlerts, fetchLiveSensorState, modelStatus.running]);
+  }, [fetchStatus, fetchModelStatus, fetchDetectionModes, fetchAlerts, fetchLiveSensorState, modelStatus.running]);
 
   useEffect(() => {
     if (!isStartingModel) return;
@@ -442,6 +515,7 @@ export default function FootboardMonitor() {
       await Promise.all([
         fetchStatus(),
         fetchModelStatus(),
+        fetchDetectionModes(),
         fetchAlerts()
       ]);
 
@@ -459,7 +533,7 @@ export default function FootboardMonitor() {
       isMounted = false;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [autoRefresh, fetchStatus, fetchModelStatus, fetchAlerts, modelStatus.running]);
+  }, [autoRefresh, fetchStatus, fetchModelStatus, fetchDetectionModes, fetchAlerts, modelStatus.running]);
 
   useEffect(() => {
     if (!autoRefresh || !modelStatus.running) return;
@@ -581,6 +655,8 @@ export default function FootboardMonitor() {
 
   const liveSensorRisk = !modelStatus.running
     ? 'OFF'
+    : !detectionModes.irEnabled
+    ? 'IR OFF'
     : liveSensorState.s3
     ? 'CRITICAL'
     : liveSensorState.moving && (liveSensorState.s1 || liveSensorState.s2)
@@ -588,7 +664,9 @@ export default function FootboardMonitor() {
     : (liveSensorState.s1 || liveSensorState.s2) ? 'WARNING' : 'SAFE';
   const liveSensorStatusText = !modelStatus.running
     ? 'Monitoring is off'
+    : !detectionModes.irEnabled ? 'IR detection is disabled. Speed still updates.'
     : liveSensorState.online ? 'Reading live ESP32 IR + speed state' : 'ESP32 live state unavailable';
+  const modeSummary = `${detectionModes.aiEnabled ? 'AI on' : 'AI off'} | ${detectionModes.irEnabled ? 'IR on' : 'IR off'}`;
 
   return (
     <View className="flex-1 bg-slate-100">
@@ -634,6 +712,7 @@ export default function FootboardMonitor() {
                   {isStartingModel && (
                     <Text className="text-white/70 text-xs mt-1">Please wait for the system to turn on</Text>
                   )}
+                  <Text className="text-white/70 text-xs mt-1">{modeSummary}</Text>
                 </View>
               </View>
 
@@ -645,6 +724,42 @@ export default function FootboardMonitor() {
                 thumbColor="white"
                 style={{ transform: [{ scale: 1.2 }] }}
               />
+            </View>
+
+            <View className="mt-5 pt-4 border-t border-white/20">
+              <Text className="text-white/70 text-xs uppercase tracking-wider mb-3">Detection Sources</Text>
+              <View className="flex-row gap-3">
+                <View className="flex-1 rounded-xl bg-white/10 px-3 py-3">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1 mr-2">
+                      <Ionicons name="eye-outline" size={18} color="white" />
+                      <Text className="text-white font-semibold ml-2">AI</Text>
+                    </View>
+                    <Switch
+                      value={detectionModes.aiEnabled}
+                      onValueChange={(value) => updateDetectionModes({ aiEnabled: value })}
+                      disabled={isUpdatingModes}
+                      trackColor={{ false: 'rgba(255,255,255,0.25)', true: 'rgba(255,255,255,0.45)' }}
+                      thumbColor="white"
+                    />
+                  </View>
+                </View>
+                <View className="flex-1 rounded-xl bg-white/10 px-3 py-3">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1 mr-2">
+                      <Ionicons name="hardware-chip-outline" size={18} color="white" />
+                      <Text className="text-white font-semibold ml-2">IR</Text>
+                    </View>
+                    <Switch
+                      value={detectionModes.irEnabled}
+                      onValueChange={(value) => updateDetectionModes({ irEnabled: value })}
+                      disabled={isUpdatingModes}
+                      trackColor={{ false: 'rgba(255,255,255,0.25)', true: 'rgba(255,255,255,0.45)' }}
+                      thumbColor="white"
+                    />
+                  </View>
+                </View>
+              </View>
             </View>
           </View>
         </View>
@@ -701,7 +816,9 @@ export default function FootboardMonitor() {
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-row items-center">
               <Ionicons name="hardware-chip-outline" size={16} color="#64748B" />
-              <Text className="text-sm font-semibold text-slate-700 ml-2">Live IR + Speed State</Text>
+              <Text className="text-sm font-semibold text-slate-700 ml-2">
+                {detectionModes.irEnabled ? 'Live IR + Speed State' : 'Live Speed State'}
+              </Text>
             </View>
             <Text className="text-xs text-slate-400">
               {!modelStatus.running
@@ -774,10 +891,10 @@ export default function FootboardMonitor() {
               {liveSensorStatusText}
             </Text>
             <View className={`ml-auto px-2 py-0.5 rounded-full ${
-              liveSensorRisk === 'OFF' ? 'bg-slate-100' : liveSensorRisk === 'CRITICAL' ? 'bg-red-100' : liveSensorRisk === 'WARNING' ? 'bg-amber-100' : 'bg-emerald-100'
+              liveSensorRisk === 'OFF' || liveSensorRisk === 'IR OFF' ? 'bg-slate-100' : liveSensorRisk === 'CRITICAL' ? 'bg-red-100' : liveSensorRisk === 'WARNING' ? 'bg-amber-100' : 'bg-emerald-100'
             }`}>
               <Text className={`text-xs font-semibold ${
-                liveSensorRisk === 'OFF' ? 'text-slate-500' : liveSensorRisk === 'CRITICAL' ? 'text-red-600' : liveSensorRisk === 'WARNING' ? 'text-amber-600' : 'text-emerald-600'
+                liveSensorRisk === 'OFF' || liveSensorRisk === 'IR OFF' ? 'text-slate-500' : liveSensorRisk === 'CRITICAL' ? 'text-red-600' : liveSensorRisk === 'WARNING' ? 'text-amber-600' : 'text-emerald-600'
               }`}>
                 {liveSensorRisk}
               </Text>

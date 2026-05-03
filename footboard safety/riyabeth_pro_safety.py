@@ -58,6 +58,8 @@ parser.add_argument("--display_height", type=int, default=480)
 parser.add_argument("--ai_imgsz", type=int, default=416)
 parser.add_argument("--ai_conf", type=float, default=0.25)
 parser.add_argument("--ai_interval", type=float, default=0.12, help="Minimum seconds between YOLO inference passes")
+parser.add_argument("--disable_ai", action="store_true", help="Start with AI vision detection disabled")
+parser.add_argument("--disable_ir", action="store_true", help="Start with IR footboard detection disabled")
 
 args = parser.parse_args()
 
@@ -73,6 +75,9 @@ DISPLAY_SIZE = (args.display_width, args.display_height)
 AI_IMGSZ = args.ai_imgsz
 AI_CONF = args.ai_conf
 AI_INTERVAL = max(0.03, args.ai_interval)
+AI_ENABLED = not args.disable_ai
+IR_ENABLED = not args.disable_ir
+detection_mode_lock = threading.Lock()
 
 if CAMERA_URL:
     VIDEO_URL = CAMERA_URL
@@ -172,6 +177,49 @@ def send_heartbeat():
         time.sleep(5)
 
 
+def get_detection_modes():
+    with detection_mode_lock:
+        return AI_ENABLED, IR_ENABLED
+
+
+def refresh_detection_modes():
+    """Pull AI/IR mode switches from the mobile app/server while running."""
+    global AI_ENABLED, IR_ENABLED
+
+    while True:
+        try:
+            response = http_session.get(
+                f"{SERVER_URL}/modes",
+                params={"driver_id": DRIVER_ID},
+                timeout=2
+            )
+            if response.status_code == 200:
+                data = response.json()
+                next_ai_enabled = parse_bool(data.get("aiEnabled", True))
+                next_ir_enabled = parse_bool(data.get("irEnabled", True))
+
+                with detection_mode_lock:
+                    changed = next_ai_enabled != AI_ENABLED or next_ir_enabled != IR_ENABLED
+                    AI_ENABLED = next_ai_enabled
+                    IR_ENABLED = next_ir_enabled
+
+                if changed:
+                    print(
+                        f"[MODES] AI={'ON' if next_ai_enabled else 'OFF'} | "
+                        f"IR={'ON' if next_ir_enabled else 'OFF'}"
+                    )
+
+                if not next_ai_enabled:
+                    with ai_state_lock:
+                        ai_state.occupied = False
+                        ai_state.max_confidence = 0.0
+                        ai_state.boxes = []
+        except Exception:
+            pass
+
+        time.sleep(1.0)
+
+
 def alert_sender_worker():
     """Persist alerts in the background so DB/network latency cannot stall detection."""
     while True:
@@ -216,6 +264,10 @@ def send_alert(alert_type, status, speed, confidence, message):
 
 def send_ir_webhook_alert(s1, s2, s3, risk_level):
     """Forward ESP32 IR changes immediately, even if the camera stream is unavailable."""
+    _, ir_enabled = get_detection_modes()
+    if not ir_enabled:
+        return
+
     step_label = get_step_label(s1, s2, s3)
     ir_occupied = s1 or s2 or s3
 
@@ -548,6 +600,17 @@ def run_ai_inference(camera):
     last_inference_time = 0.0
 
     while not camera.stopped:
+        ai_enabled, _ = get_detection_modes()
+        if not ai_enabled:
+            with ai_state_lock:
+                ai_state.occupied = False
+                ai_state.max_confidence = 0.0
+                ai_state.boxes = []
+                ai_state.fps = 0.0
+                ai_state.updated_at = time.time()
+            time.sleep(0.2)
+            continue
+
         now = time.time()
         remaining = AI_INTERVAL - (now - last_inference_time)
         if remaining > 0:
@@ -634,6 +697,9 @@ threading.Thread(target=update_from_esp32_dashboard, daemon=True).start()
 # Persist alerts without blocking camera inference, webhooks, or display updates.
 threading.Thread(target=alert_sender_worker, daemon=True).start()
 
+# Pull AI/IR enable switches from the server while the monitor is running.
+threading.Thread(target=refresh_detection_modes, daemon=True).start()
+
 # Start the Flask Webhook for ESP32 IR and speed pushes
 threading.Thread(target=run_webhook_server, daemon=True).start()
 
@@ -646,6 +712,7 @@ prev_time = time.time()
 last_display_frame_id = -1
 last_repaint_time = 0.0
 last_alert_time = 0  # Throttle alerts to avoid spam
+last_alert_status = "SAFE"
 ALERT_COOLDOWN = 2  # seconds between alerts
 
 print(f"RiyaNeth Camera Source: {CAMERA_SOURCE}")
@@ -676,14 +743,17 @@ while True:
     annotated_frame = frame.copy()
 
     # --- SENSOR FUSION LOGIC ---
+    ai_enabled, ir_enabled = get_detection_modes()
+
     # 1. AI Detection (updated by the background inference thread)
     with ai_state_lock:
-        yolo_occupied = ai_state.occupied
-        ai_max_confidence = ai_state.max_confidence
-        ai_boxes = list(ai_state.boxes)
+        yolo_occupied = ai_state.occupied if ai_enabled else False
+        ai_max_confidence = ai_state.max_confidence if ai_enabled else 0.0
+        ai_boxes = list(ai_state.boxes) if ai_enabled else []
         ai_fps = ai_state.fps
 
-    draw_ai_boxes(annotated_frame, ai_boxes)
+    if ai_enabled:
+        draw_ai_boxes(annotated_frame, ai_boxes)
 
     # 2. IR Sensor Hardware Detection
     with ir_state_lock:
@@ -707,8 +777,8 @@ while True:
         speed_source_label = "Waiting"
         speed_source_active = False
 
-    ir_occupied = current_ir_state["s1"] or current_ir_state["s2"] or current_ir_state["s3"]
-    ir_danger = current_ir_state["s3"] # Bottom step is immediate danger
+    ir_occupied = ir_enabled and (current_ir_state["s1"] or current_ir_state["s2"] or current_ir_state["s3"])
+    ir_danger = ir_enabled and current_ir_state["s3"] # Bottom step is immediate danger
     
     # Combined Safety State
     footboard_occupied = yolo_occupied or ir_occupied
@@ -739,9 +809,9 @@ while True:
     
     # --- Build step-specific label for message (S1=Entry, S2=Mid, S3=Bottom) ---
     active_ir_steps = []
-    if current_ir_state.get("s1"): active_ir_steps.append("S1-Entry")
-    if current_ir_state.get("s2"): active_ir_steps.append("S2-Mid")
-    if current_ir_state.get("s3"): active_ir_steps.append("S3-Bottom")
+    if ir_enabled and current_ir_state.get("s1"): active_ir_steps.append("S1-Entry")
+    if ir_enabled and current_ir_state.get("s2"): active_ir_steps.append("S2-Mid")
+    if ir_enabled and current_ir_state.get("s3"): active_ir_steps.append("S3-Bottom")
     step_label = ", ".join(active_ir_steps) if active_ir_steps else ""
 
     # Critical Alert: Moving while occupied OR someone is on the bottom step (Step 3)
@@ -761,9 +831,10 @@ while True:
             )
 
         # Send critical alert to server (with cooldown)
-        if current_time - last_alert_time > ALERT_COOLDOWN:
+        if current_time - last_alert_time > ALERT_COOLDOWN or last_alert_status != "CRITICAL":
             send_alert(detection_source, "CRITICAL", current_speed_kmh, max_confidence, status_msg)
             last_alert_time = current_time
+            last_alert_status = "CRITICAL"
 
     # Warning Alert: Occupied (Steps 1 or 2, or AI) but stationary
     elif footboard_occupied:
@@ -777,11 +848,13 @@ while True:
         if current_time - last_alert_time > ALERT_COOLDOWN:
             send_alert(detection_source, "WARNING", current_speed_kmh, max_confidence, status_msg)
             last_alert_time = current_time
+            last_alert_status = "WARNING"
 
     # Safe
     else:
         overlay_color = (0, 255, 0) # Green
         status_msg = f"Footboard clear. Speed: {current_speed_kmh:.1f} km/h."
+        last_alert_status = "SAFE"
 
     # --- UI RENDERING ---
     # Top Status Bar
@@ -790,8 +863,10 @@ while True:
                 cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 2)
 
     # Hardware / AI Status Indicator
-    cv2.putText(annotated_frame, f"IR: {'ON' if current_ir_state['online'] else 'OFF'}", (20, 100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if current_ir_state['online'] else (0, 0, 255), 2)
+    ir_label = "DISABLED" if not ir_enabled else ('ON' if current_ir_state['online'] else 'OFF')
+    ir_color = (120, 120, 120) if not ir_enabled else ((0, 255, 0) if current_ir_state['online'] else (0, 0, 255))
+    cv2.putText(annotated_frame, f"IR: {ir_label}", (20, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, ir_color, 2)
     cv2.putText(annotated_frame, f"Speed: {speed_source_label} ({current_speed_kmh:.1f} km/h)", (20, 130),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if speed_source_active else (0, 200, 255), 2)
 
@@ -803,7 +878,8 @@ while True:
     frame_age = curr_time - frame_time if frame_time else 99.0
     cv2.putText(annotated_frame, f"Cam FPS: {camera_fps:.1f}", (DISPLAY_SIZE[0] - 160, 100),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    cv2.putText(annotated_frame, f"AI FPS: {ai_fps:.1f}", (DISPLAY_SIZE[0] - 160, 130),
+    ai_label = f"AI FPS: {ai_fps:.1f}" if ai_enabled else "AI: DISABLED"
+    cv2.putText(annotated_frame, ai_label, (DISPLAY_SIZE[0] - 160, 130),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     if frame_age > 1.0:
         cv2.putText(annotated_frame, "CAMERA STALE", (DISPLAY_SIZE[0] - 180, 160),
