@@ -195,7 +195,8 @@ export const getMyChildren = async (req, res, next) => {
         });
 
     } catch (error) {
-        next(new AppError('Database error fetching children', 500));
+        console.error("GET MY CHILDREN ERROR:", error);
+        next(new AppError(`Database error fetching children: ${error.message}`, 500));
     }
 };
 
@@ -288,6 +289,27 @@ export const setAttendanceDeclaration = async (req, res, next) => {
     }
 
     const targetDate = date || new Date().toISOString().split('T')[0]; // Default to today
+
+    // ADDR Validations
+    const now = new Date();
+    // Use the server's local time (or requested timezone)
+    const currentLocalString = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    
+    if (targetDate !== currentLocalString) {
+        return next(new AppError('Attendance can only be marked for the current date.', 400));
+    }
+
+    const currentDay = now.getDay();
+    if (currentDay === 0 || currentDay === 6) {
+        return next(new AppError('Attendance submissions are blocked on weekends.', 400));
+    }
+
+    if (morningPresent !== undefined) {
+        // const currentHour = now.getHours();
+        // if (currentHour >= 12) {
+        //     return next(new AppError('Morning attendance cannot be updated after 12:00 PM.', 400));
+        // }
+    }
 
     const client = await pgPool.connect();
 
@@ -400,5 +422,255 @@ export const getAttendanceDeclaration = async (req, res, next) => {
 
     } catch (error) {
         next(new AppError('Database error fetching declaration', 500));
+    }
+};
+
+
+// ========== ATTENDANCE SCHEDULE (Weekly / Daily Pickup Settings) ==========
+
+/**
+ * POST /parent/attendance-schedule
+ * Set or update pickup schedule for a child on specific dates.
+ * Body: { childId, schedules: [{ date, isPresent, scheduleType, pickupLat, pickupLon, pickupAddress, dropoffLat, dropoffLon, dropoffAddress, notes }] }
+ */
+export const setAttendanceSchedule = async (req, res, next) => {
+    const user_uuid = req.user.id;
+    const { childId, schedules } = req.body;
+
+    if (!childId || !schedules || !Array.isArray(schedules) || schedules.length === 0) {
+        return next(new AppError('childId and schedules array are required', 400));
+    }
+
+    const client = await pgPool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Verify parent owns this child
+        const parentRes = await client.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) throw new AppError('Parent profile not found.', 404);
+        const parentId = parentRes.rows[0].id;
+
+        const childCheck = await client.query(
+            'SELECT id FROM public.children WHERE id = $1 AND parent_id = $2',
+            [childId, parentId]
+        );
+        if (childCheck.rowCount === 0) throw new AppError('Child not found or does not belong to this parent.', 404);
+
+        const results = [];
+
+        for (const schedule of schedules) {
+            const {
+                date: scheduleDate,
+                isPresent = true,
+                scheduleType = 'BOTH',
+                pickupLat, pickupLon, pickupAddress,
+                dropoffLat, dropoffLon, dropoffAddress,
+                notes
+            } = schedule;
+
+            if (!scheduleDate) continue;
+
+            const result = await client.query(
+                `INSERT INTO public.parent_attendance_schedule
+                    (child_id, parent_id, schedule_date, is_present, schedule_type,
+                     pickup_lat, pickup_lon, pickup_address,
+                     dropoff_lat, dropoff_lon, dropoff_address, notes)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 ON CONFLICT (child_id, schedule_date)
+                 DO UPDATE SET
+                    is_present = EXCLUDED.is_present,
+                    schedule_type = EXCLUDED.schedule_type,
+                    pickup_lat = COALESCE(EXCLUDED.pickup_lat, parent_attendance_schedule.pickup_lat),
+                    pickup_lon = COALESCE(EXCLUDED.pickup_lon, parent_attendance_schedule.pickup_lon),
+                    pickup_address = COALESCE(EXCLUDED.pickup_address, parent_attendance_schedule.pickup_address),
+                    dropoff_lat = COALESCE(EXCLUDED.dropoff_lat, parent_attendance_schedule.dropoff_lat),
+                    dropoff_lon = COALESCE(EXCLUDED.dropoff_lon, parent_attendance_schedule.dropoff_lon),
+                    dropoff_address = COALESCE(EXCLUDED.dropoff_address, parent_attendance_schedule.dropoff_address),
+                    notes = COALESCE(EXCLUDED.notes, parent_attendance_schedule.notes),
+                    updated_at = NOW()
+                 RETURNING *`,
+                [childId, parentId, scheduleDate, isPresent, scheduleType,
+                    pickupLat || null, pickupLon || null, pickupAddress || null,
+                    dropoffLat || null, dropoffLon || null, dropoffAddress || null,
+                    notes || null]
+            );
+            results.push(result.rows[0]);
+        }
+
+        await client.query('COMMIT');
+
+        res.status(200).json({
+            status: 'success',
+            message: `${results.length} schedule(s) saved`,
+            data: results
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        next(error instanceof AppError ? error : new AppError(error.message, 500));
+    } finally {
+        client.release();
+    }
+};
+
+
+/**
+ * GET /parent/attendance-schedule/:date
+ * Get schedules for a specific date (or week range via query params).
+ * Query: ?childId=xxx&from=YYYY-MM-DD&to=YYYY-MM-DD
+ */
+export const getAttendanceSchedule = async (req, res, next) => {
+    const user_uuid = req.user.id;
+    const { date } = req.params;
+    const { childId, from, to } = req.query;
+
+    try {
+        const parentRes = await pgPool.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) return next(new AppError('Parent profile not found.', 404));
+        const parentId = parentRes.rows[0].id;
+
+        let query = `
+            SELECT pas.*, c.child_name
+            FROM public.parent_attendance_schedule pas
+            JOIN public.children c ON c.id = pas.child_id
+            WHERE pas.parent_id = $1
+        `;
+        const params = [parentId];
+        let paramCount = 1;
+
+        if (childId) {
+            paramCount++;
+            query += ` AND pas.child_id = $${paramCount}`;
+            params.push(childId);
+        }
+
+        if (from && to) {
+            paramCount++;
+            query += ` AND pas.schedule_date >= $${paramCount}`;
+            params.push(from);
+            paramCount++;
+            query += ` AND pas.schedule_date <= $${paramCount}`;
+            params.push(to);
+        } else if (date && date !== 'range') {
+            paramCount++;
+            query += ` AND pas.schedule_date = $${paramCount}`;
+            params.push(date);
+        }
+
+        query += ` ORDER BY pas.schedule_date ASC, c.child_name ASC`;
+
+        const result = await pgPool.query(query, params);
+
+        res.status(200).json({
+            status: 'success',
+            results: result.rowCount,
+            data: result.rows
+        });
+
+    } catch (error) {
+        next(new AppError('Database error fetching schedule', 500));
+    }
+};
+
+
+/**
+ * GET /parent/attendance-history
+ * Returns combined view: schedules + actual attendance for all children.
+ * Query: ?childId=xxx&from=YYYY-MM-DD&to=YYYY-MM-DD
+ */
+export const getAttendanceHistory = async (req, res, next) => {
+    const user_uuid = req.user.id;
+    const { childId, from, to } = req.query;
+
+    try {
+        const parentRes = await pgPool.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) return next(new AppError('Parent profile not found.', 404));
+        const parentId = parentRes.rows[0].id;
+
+        let query = `
+            SELECT
+                c.id AS child_id,
+                c.child_name,
+                pas.schedule_date,
+                pas.is_present AS scheduled_present,
+                pas.schedule_type,
+                pas.pickup_address,
+                pas.dropoff_address,
+                pas.notes,
+                a.status AS actual_status,
+                a.morning_pickup_time,
+                a.morning_drop_time,
+                a.evening_pickup_time,
+                a.evening_drop_time,
+                a.last_action
+            FROM public.parent_attendance_schedule pas
+            JOIN public.children c ON c.id = pas.child_id
+            LEFT JOIN public.attendance a ON a.child_id = c.id AND a.date::date = pas.schedule_date::date
+            WHERE pas.parent_id = $1
+        `;
+        const params = [parentId];
+        let paramCount = 1;
+
+        if (childId) {
+            paramCount++;
+            query += ` AND c.id = $${paramCount}`;
+            params.push(childId);
+        }
+        if (from) {
+            paramCount++;
+            query += ` AND pas.schedule_date >= $${paramCount}`;
+            params.push(from);
+        }
+        if (to) {
+            paramCount++;
+            query += ` AND pas.schedule_date <= $${paramCount}`;
+            params.push(to);
+        }
+
+        query += ` ORDER BY pas.schedule_date DESC, c.child_name ASC LIMIT 200`;
+
+        const result = await pgPool.query(query, params);
+
+        res.status(200).json({
+            status: 'success',
+            results: result.rowCount,
+            data: result.rows
+        });
+
+    } catch (error) {
+        next(new AppError('Database error fetching attendance history', 500));
+    }
+};
+
+
+/**
+ * GET /parent/holidays
+ * Returns holidays list. Query: ?year=2025
+ */
+export const getHolidays = async (req, res, next) => {
+    const { year } = req.query;
+
+    try {
+        let query = 'SELECT * FROM public.holidays';
+        const params = [];
+
+        if (year) {
+            query += ' WHERE EXTRACT(YEAR FROM holiday_date) = $1';
+            params.push(year);
+        }
+
+        query += ' ORDER BY holiday_date ASC';
+
+        const result = await pgPool.query(query, params);
+
+        res.status(200).json({
+            status: 'success',
+            results: result.rowCount,
+            data: result.rows
+        });
+
+    } catch (error) {
+        next(new AppError('Database error fetching holidays', 500));
     }
 };

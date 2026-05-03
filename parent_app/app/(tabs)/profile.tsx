@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
 export default function ProfileScreen() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { data: profile, isLoading } = useProfile();
   const updateMutation = useUpdateProfile();
   const deleteMutation = useDeleteProfile();
@@ -181,9 +181,22 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Danger Zone */}
+        {/* Account Actions */}
         <View className="mt-4 mb-8">
-           <Text className="text-xs font-bold text-red-500 uppercase mb-3 ml-2 tracking-widest">Danger Zone</Text>
+           <Text className="text-xs font-bold text-slate-500 uppercase mb-3 ml-2 tracking-widest">Account Actions</Text>
+           
+           <TouchableOpacity 
+            onPress={async () => {
+               await signOut();
+               router.replace('/');
+            }}
+            className="bg-slate-200 p-5 rounded-2xl border border-slate-300 flex-row items-center justify-center mb-4"
+           >
+             <Ionicons name="log-out-outline" size={20} color="#334155" style={{ marginRight: 8 }} />
+             <Text className="text-slate-700 font-bold text-base">Log Out</Text>
+           </TouchableOpacity>
+
+           <Text className="text-xs font-bold text-red-500 uppercase mb-3 ml-2 tracking-widest mt-4">Danger Zone</Text>
            <TouchableOpacity 
             onPress={handleDelete}
             disabled={deleteMutation.isPending}

@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerParentProfile, registerChild, getSchoolsForDropdown, getMyChildren, getParentAttendance, setAttendanceDeclaration, getAttendanceDeclaration } from '../controllers/parentController.js'; // Import the controller we created
+import { registerParentProfile, registerChild, getSchoolsForDropdown, getMyChildren, getParentAttendance, setAttendanceDeclaration, getAttendanceDeclaration, setAttendanceSchedule, getAttendanceSchedule, getAttendanceHistory, getHolidays } from '../controllers/parentController.js';
 
 const router = express.Router();
 
@@ -40,7 +40,7 @@ router.get(
 router.post(
     '/register_child',
     authenticateToken,
-    // authorizeRole([ROLES.PARENT]), 
+    authorizeRole([ROLES.PARENT]), 
     registerChild
 );
 
@@ -72,6 +72,41 @@ router.get(
     authenticateToken,
     authorizeRole([ROLES.PARENT]),
     getAttendanceDeclaration
+);
+
+// --- Attendance Schedule Routes ---
+router.post(
+    '/attendance-schedule',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    setAttendanceSchedule
+);
+
+router.get(
+    '/attendance-schedule/range',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    getAttendanceSchedule
+);
+
+router.get(
+    '/attendance-schedule/:date',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    getAttendanceSchedule
+);
+
+router.get(
+    '/attendance-history',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    getAttendanceHistory
+);
+
+router.get(
+    '/holidays',
+    authenticateToken,
+    getHolidays
 );
 
 export default router;

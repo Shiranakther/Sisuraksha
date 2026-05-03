@@ -1,3 +1,6 @@
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
+
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -20,9 +23,13 @@ import driverMonitorRoutes from './routes/driverMonitorRoutes.js'
 import safetyRoutes from './routes/safetyRoutes.js'
 
 import windowSafetyRoutes from './routes/windowSafetyRoutes.js';
-
+import faceRecognitionRoutes from './routes/faceRecognitionRoutes.js';
+import blockchainRoutes from './routes/blockchainRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
+import accidentRoutes from './routes/accidentRoutes.js';
 
 const app = express();
+
 const PORT = process.env.PORT || 5001;
 
 // Connect Mongodb Databases
@@ -48,7 +55,7 @@ app.use(cors({
 // Rate Limiting - increased for development with real-time polling
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Higher limit in development
+  max: process.env.NODE_ENV === 'production' ? 300 : 5000, // Higher limit in development
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -78,6 +85,10 @@ app.use('/api/parent', parentRoutes);
 app.use('/api/driver-monitor', driverMonitorRoutes);
 app.use('/api/safety', safetyRoutes);
 app.use('/api/window-safety', windowSafetyRoutes);
+app.use('/api/face', faceRecognitionRoutes);
+app.use('/api/blockchain', blockchainRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/accident', accidentRoutes);
 
 app.use(errorHandler);
 

@@ -29,10 +29,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoading(false);
     };
     loadUser();
+    
+    // Subscribe to token clears from Axios interceptor
+    tokenService.subscribeToClear(() => {
+      setUser(null);
+    });
   }, []);
 
-  const signIn = async (token: string, userData: User) => {
+  const signIn = async (token: string, refreshToken: string, userData: User) => {
     await tokenService.setAccessToken(token);
+    await tokenService.setRefreshToken(refreshToken);
     setUser(userData);
   };
 

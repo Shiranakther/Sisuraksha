@@ -1,6 +1,6 @@
-
 import bcrypt from 'bcryptjs';
-import { pool as pgPool } from '../config/postgres.js';
+import jwt from 'jsonwebtoken';
+import { pool as pgPool, queryWithRetry } from '../config/postgres.js';
 import { signAccessToken, signRefreshToken, setRefreshCookie, createJti, hashToken } from '../utils/auth.js';
 import AppError from '../utils/appError.js';
 import axios from 'axios';
@@ -55,7 +55,7 @@ const saltRounds = 10;
 
 //     } catch (error) {
 //         await client.query('ROLLBACK'); // Undo everything if error occurs
-        
+
 //         if (error.code === '23505') { // Unique violation (e.g., email exists)
 //             return next(new AppError('Email already in use', 409));
 //         }
@@ -68,7 +68,7 @@ const saltRounds = 10;
 
 export const register = async (req, res, next) => {
     // 1. Destructure ALL possible fields (User + Driver)
-    const { 
+    const {
         email, password, role, first_name, last_name, address, phone_number, // User fields
         license_number, trip_start_lat, trip_start_lon, trip_end_lat, trip_end_lon, school_ids // Driver fields
     } = req.body;
@@ -170,45 +170,54 @@ export const login = async (req, res, next) => {
         return next(new AppError('Email and password are required.', 400));
     }
 
-    // Find user by email
-    const userResult = await pgPool.query(
-        'SELECT id, email, password_hash, role FROM users WHERE email = $1 AND is_active = TRUE',
-        [email]
-    );
+    try {
+        // Find user by email (retries once on transient connection errors)
+        const userResult = await queryWithRetry(
+            'SELECT id, email, password_hash, role FROM users WHERE email = $1 AND is_active = TRUE',
+            [email]
+        );
 
-    const user = userResult.rows[0];
-    if (!user) {
-        
-        return next(new AppError('Invalid credentials. User not found', 401)); 
+        const user = userResult.rows[0];
+        if (!user) {
+            return next(new AppError('Invalid credentials. User not found', 401));
+        }
+
+        // Validate credentials
+        const passwordMatch = await bcrypt.compare(password, user.password_hash);
+        if (!passwordMatch) {
+            return next(new AppError('Wrong Password ', 401));
+        }
+
+        // Generate tokens
+        const jti = createJti();
+        const accessToken = signAccessToken(user);
+        const refreshToken = signRefreshToken(user, jti);
+
+        // Store refresh token hash in DB for revocation
+        const hashedToken = hashToken(refreshToken);
+        await queryWithRetry(
+            'INSERT INTO refresh_tokens (user_id, token_hash, jti, expires_at) VALUES ($1, $2, $3, NOW() + $4::interval)',
+            [user.id, hashedToken, jti, process.env.REFRESH_TOKEN_TTL]
+        );
+
+        // Send tokens to client
+        setRefreshCookie(res, refreshToken);
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Login successful.',
+            token: accessToken,
+            refreshToken: refreshToken,
+            data: { userId: user.id, role: user.role }
+        });
+    } catch (err) {
+        const isConnErr = err.message?.includes('Connection terminated');
+        if (isConnErr) {
+            console.error('[login] DB connection error:', err.message);
+            return next(new AppError('Database connection error. Please try again.', 503));
+        }
+        return next(err);
     }
-
-    // Validate credentials
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-    if (!passwordMatch) {
-        return next(new AppError('Wrong Password ', 401));
-    }
-
-    // Generate tokens 
-    const jti = createJti();
-    const accessToken = signAccessToken(user);
-    const refreshToken = signRefreshToken(user, jti);
-    
-    // Store refresh token hash in DB for revocation 
-    const hashedToken = hashToken(refreshToken);
-    await pgPool.query(
-  'INSERT INTO refresh_tokens (user_id, token_hash, jti, expires_at) VALUES ($1, $2, $3, NOW() + $4::interval)',
-          [user.id, hashedToken, jti, process.env.REFRESH_TOKEN_TTL] 
-    );
-
-    // Send tokens to client 
-    setRefreshCookie(res, refreshToken);
-    
-    res.status(200).json({
-        status: 'success',
-        message: 'Login successful.',
-        token: accessToken, 
-        data: { userId: user.id, role: user.role }
-    });
 };
 
 
@@ -216,7 +225,7 @@ export const login = async (req, res, next) => {
 
 export const logout = async (req, res, next) => {
     // The refresh token is gets from the cookie
-    const refreshToken = req.cookies.refresh_token; 
+    const refreshToken = req.cookies.refresh_token;
 
     if (!refreshToken) {
         return res.status(200).json({ status: 'success', message: 'Logged out (no active refresh token).' });
@@ -231,7 +240,7 @@ export const logout = async (req, res, next) => {
         'UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL',
         [hashedToken]
     );
-    
+
     // Clear the cookie on the client (Step 8)
     res.clearCookie('refresh_token');
 
@@ -241,8 +250,7 @@ export const logout = async (req, res, next) => {
 // Refresh token 
 
 export const refresh = async (req, res, next) => {
-    // The refresh token is retrieved from the HTTP-only cookie
-    const refreshToken = req.cookies.refresh_token; 
+    const refreshToken = req.cookies.refresh_token || req.body.refreshToken;
 
     if (!refreshToken) {
         return next(new AppError('Unauthorized: Refresh token missing.', 401));
@@ -254,10 +262,13 @@ export const refresh = async (req, res, next) => {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
         const jti = decoded.jti; // Get the unique JWT ID
 
-        //  Lookup the token in the database (Step 7)
+        //  Lookup the token in the database and get user details (Step 7)
         const hashedToken = hashToken(refreshToken);
         const dbTokenResult = await pgPool.query(
-            'SELECT user_id, revoked_at, expires_at FROM refresh_tokens WHERE jti = $1 AND token_hash = $2',
+            `SELECT rt.user_id, rt.revoked_at, rt.expires_at, u.role, u.email 
+             FROM refresh_tokens rt 
+             JOIN users u ON rt.user_id = u.id 
+             WHERE rt.jti = $1 AND rt.token_hash = $2`,
             [jti, hashedToken]
         );
 
@@ -272,7 +283,7 @@ export const refresh = async (req, res, next) => {
         }
 
         //  Generate new tokens (Token Rotation)
-        const user = { id: decoded.userId, role: dbToken.role }; // Fetch user role from DB if needed, simplified here
+        const user = { id: decoded.userId, email: dbToken.email, role: dbToken.role }; 
         const newAccessToken = signAccessToken(user);
         const newJti = createJti();
         const newRefreshToken = signRefreshToken(user, newJti);
@@ -291,12 +302,13 @@ export const refresh = async (req, res, next) => {
             status: 'success',
             message: 'Token refreshed successfully.',
             token: newAccessToken,
+            refreshToken: newRefreshToken,
         });
 
     } catch (err) {
         // JWT verification failure 
         res.clearCookie('refresh_token');
         // Pass the error to the global handler as a specific AppError
-        return next(new AppError('Unauthorized: Refresh token invalid.', 401)); 
+        return next(new AppError('Unauthorized: Refresh token invalid.', 401));
     }
 };

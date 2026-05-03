@@ -1,2 +1,14 @@
-node_modules/
+node_modules/
+
+# Python virtual environments and cache
+.venv/
+venv/
+**/.venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+config.bat
 .env

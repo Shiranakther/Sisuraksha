@@ -15,7 +15,7 @@ export const useLogin = () => {
       return data;
     },
     onSuccess: (data) => {
-      signIn(data.token, data.data);
+      signIn(data.token, data.refreshToken, data.data);
       router.replace('/(tabs)/home');
     },
     onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Login failed')
@@ -130,7 +130,7 @@ export const useRegisterChild = () => {
     onSuccess: () => {
       Alert.alert('Success', 'Child registered successfully!');
       // If you have a query that lists children, invalidate it here to refresh the list
-      // queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
     },
     onError: (err: any) => {
       Alert.alert('Error', err.response?.data?.message || 'Failed to register child');
@@ -284,6 +284,68 @@ export const useAllChildrenDeclarations = () => {
 };
 
 
+// ========== FACE RECOGNITION HOOKS ==========
+
+export const useFaceRegister = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ childId, images }: { childId: string; images: string[] }) => {
+      const formData = new FormData();
+      formData.append('child_id', childId);
+      images.forEach((uri, i) => {
+        formData.append('images', {
+          uri,
+          type: 'image/jpeg',
+          name: `face_${i + 1}.jpg`,
+        } as any);
+      });
+      const { data } = await apiClient.post(API_ENDPOINTS.FACE_REGISTER, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+      return data;
+    },
+    onSuccess: (_, { childId }) => {
+      queryClient.invalidateQueries({ queryKey: ['faceStatus', childId] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+    },
+    onError: (err: any) => {
+      Alert.alert('Registration Failed', err.response?.data?.message || err.response?.data?.error || 'Face registration failed');
+    },
+  });
+};
+
+export const useFaceStatus = (childId: string) => {
+  return useQuery({
+    queryKey: ['faceStatus', childId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.FACE_STATUS}/${childId}`);
+      return data.data;
+    },
+    enabled: !!childId,
+    retry: false,           // Don't retry on 500 — avoids log spam when table is missing
+    staleTime: 30_000,      // Cache for 30s to reduce repeat calls per child card
+  });
+};
+
+export const useDeleteFace = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (childId: string) => {
+      const { data } = await apiClient.delete(`${API_ENDPOINTS.FACE_DELETE}/${childId}`);
+      return data;
+    },
+    onSuccess: (_, childId) => {
+      queryClient.invalidateQueries({ queryKey: ['faceStatus', childId] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+      Alert.alert('Success', 'Face data removed. You can re-register.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete face data');
+    },
+  });
+};
+
 // ========== PROFILE MANAGEMENT HOOKS ==========
 
 export const useProfile = () => {
@@ -333,5 +395,105 @@ export const useDeleteProfile = () => {
     onError: (err: any) => {
       Alert.alert('Error', err.response?.data?.message || 'Failed to delete account');
     },
+  });
+};
+
+
+// ========== ATTENDANCE SCHEDULE HOOKS (Route Management) ==========
+
+interface ScheduleEntry {
+  date: string;
+  isPresent: boolean;
+  scheduleType: string;
+  pickupLat?: number | null;
+  pickupLon?: number | null;
+  pickupAddress?: string | null;
+  dropoffLat?: number | null;
+  dropoffLon?: number | null;
+  dropoffAddress?: string | null;
+  notes?: string | null;
+}
+
+export const useSetAttendanceSchedule = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { childId: string; schedules: ScheduleEntry[] }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.ATTENDANCE_SCHEDULE_SET, payload);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendanceSchedule'] });
+      queryClient.invalidateQueries({ queryKey: ['attendanceHistory'] });
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to save schedule');
+    },
+  });
+};
+
+export const useGetAttendanceSchedule = (childId: string | null, from?: string, to?: string) => {
+  return useQuery({
+    queryKey: ['attendanceSchedule', childId, from, to],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (childId) params.append('childId', childId);
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ATTENDANCE_SCHEDULE_GET}/range?${params.toString()}`);
+      return data.data;
+    },
+    enabled: !!childId,
+  });
+};
+
+export const useGetAttendanceHistory = (childId?: string | null) => {
+  return useQuery({
+    queryKey: ['attendanceHistory', childId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (childId) params.append('childId', childId);
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ATTENDANCE_HISTORY}?${params.toString()}`);
+      return data.data;
+    },
+  });
+};
+
+export const useGetHolidays = () => {
+  return useQuery({
+    queryKey: ['holidays'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.HOLIDAYS);
+      return data.data;
+    },
+    staleTime: 60 * 60 * 1000, // cache for 1 hour
+  });
+};
+
+// ==========================================
+// ACCIDENT DETECTION HOOKS
+// ==========================================
+
+export const useActiveAccidentAlerts = () => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'active'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.ACCIDENT_ACTIVE);
+      return data.data;
+    },
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};
+
+export const useAccidentHistory = (limit = 20) => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'history', limit],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ACCIDENT_HISTORY}?limit=${limit}`);
+      return data.data;
+    },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 };

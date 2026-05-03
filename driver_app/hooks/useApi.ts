@@ -85,13 +85,13 @@ interface LocationPayload {
 export const useLogin = () => {
   const { signIn } = useAuth();
   return useMutation({
-    mutationFn: async (creds: {email:string, password:string}) => {
+    mutationFn: async (creds: { email: string, password: string }) => {
       const { data } = await apiClient.post(API_ENDPOINTS.LOGIN, creds);
       return data;
     },
     onSuccess: (data) => {
       signIn(data.token, data.data);
-      router.replace('/(tabs)/home'); 
+      router.replace('/(tabs)/home');
     },
     onError: (err: any) => Alert.alert('Login Failed', err.response?.data?.message || 'Invalid credentials')
   });
@@ -146,7 +146,7 @@ export const useDriverChildren = () => {
     queryKey: ['driverChildren'],
     queryFn: async () => {
       // Ensure this matches the route you just created
-      const { data } = await apiClient.get('/driver/my-children'); 
+      const { data } = await apiClient.get('/driver/my-children');
       return data.data;
     },
   });
@@ -162,7 +162,7 @@ export const useTriggerRegistration = () => {
     },
     onSuccess: () => {
       Alert.alert(
-        'Registration Mode Active', 
+        'Registration Mode Active',
         'Success! The IoT device is now listening. Please tap the RFID card on the device now.'
       );
     },
@@ -180,7 +180,7 @@ export const useDriverAttendance = (date?: string, search?: string) => {
       const params = new URLSearchParams();
       if (date) params.append('date', date);
       if (search) params.append('search', search);
-      
+
       const { data } = await apiClient.get(`${API_ENDPOINTS.DRIVER_ATTENDANCE}?${params.toString()}`);
       return data.data;
     },
@@ -196,7 +196,7 @@ export const useAttendanceAlerts = () => {
       return data.data; // Returns array of missing students
     },
     // Refresh every 30 seconds to keep driver updated
-    refetchInterval: 30000, 
+    refetchInterval: 30000,
   });
 };
 
@@ -321,5 +321,184 @@ export const useDeleteVehicle = () => {
     onError: (err: any) => {
       Alert.alert('Error', err.response?.data?.message || 'Failed to delete vehicle');
     },
+  });
+};
+
+// ==========================================
+// 5. FACE RECOGNITION HOOKS
+// ==========================================
+
+export interface FaceVerifyResult {
+  child_id: string | null;
+  child_name: string;
+  confidence: number;
+  is_match: boolean;
+  sample_base64?: string;
+  attendance?: {
+    action: string;
+    message: string;
+  };
+}
+
+export interface FaceVerifyPayload {
+  image: string;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+export const useFaceVerify = () => {
+  return useMutation({
+    mutationFn: async (payload: FaceVerifyPayload): Promise<FaceVerifyResult> => {
+      const { data } = await apiClient.post(API_ENDPOINTS.FACE_VERIFY, payload, {
+        timeout: 15000,
+      });
+      return data;
+    },
+  });
+};
+
+// ---- DRIVER TRIP / ROUTE HOOKS ----
+
+export const useTripRequests = () =>
+  useQuery({
+    queryKey: ['trip-requests'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_REQUESTS);
+      return data as { data: any[]; date: string };
+    },
+    refetchInterval: 30000,
+  });
+
+export const useTodayTripData = () =>
+  useQuery({
+    queryKey: ['trip-today'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_TODAY);
+      return data as { present: any[]; absent: any[]; present_count: number; absent_count: number; date: string };
+    },
+  });
+
+export const useCreateTrip = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      start_lat: number;
+      start_lon: number;
+      end_lat?: number;
+      end_lon?: number;
+      trip_type?: 'MORNING' | 'EVENING';
+    }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.TRIP_CREATE, payload);
+      return data as { trip: any; ordered_children: any[] };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trip-boarding'] }),
+  });
+};
+
+export const useBoardingStatus = (tripId: string | null) =>
+  useQuery({
+    queryKey: ['trip-boarding', tripId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.TRIP_BOARDING}/${tripId}/boarding`);
+      return { 
+        children: data.data as any[], 
+        destination: data.destination as { latitude: number; longitude: number; name: string; trip_type?: string } | null 
+      };
+    },
+    enabled: !!tripId,
+    refetchInterval: 10000,
+  });
+
+export const useActiveTrip = () =>
+  useQuery({
+    queryKey: ['trip-active'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/driver/trip/active');
+      return data.data as { id: string; trip_type: string; started_at: string; driver_start_latitude: number; driver_start_longitude: number } | null;
+    },
+    refetchInterval: 15000,
+  });
+
+export const useMarkChildBoarded = (tripId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ childId, board_method }: { childId: string; board_method?: string }) => {
+      const { data } = await apiClient.post(
+        `${API_ENDPOINTS.TRIP_MARK_BOARD}/${tripId}/child/${childId}/board`,
+        { board_method: board_method || 'MANUAL' }
+      );
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trip-boarding', tripId] }),
+  });
+};
+
+// ==========================================
+// ACCIDENT DETECTION HOOKS
+// ==========================================
+
+export const useActiveAccidentAlerts = () => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'active'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.ACCIDENT_ACTIVE);
+      return data.data;
+    },
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};
+
+export const useAccidentHistory = (limit = 20) => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'history', limit],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.ACCIDENT_HISTORY}?limit=${limit}`);
+      return data.data;
+    },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+};
+
+export const useDoorStatus = () => {
+  return useQuery({
+    queryKey: ['doorStatus'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.DOOR_STATUS);
+      return data.data;
+    },
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};
+
+export const useOptimizedRoute = () => {
+  return useQuery({
+    queryKey: ['optimizedRoute'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_OPTIMIZED_ROUTE);
+      return data.data;
+    },
+  });
+};
+
+export const useMarkStudentBoarded = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // We can reuse the existing endpoint or create a new one, but for Supabase update, we can call a general endpoint
+    // Actually the user wanted a generic Supabase DB update. We can use the existing trip mark boarded endpoint, or create a new simple one.
+    // Let's create a custom hook that calls an endpoint. If we need to pass a tripId, we can. For now, let's assume we can use it.
+    mutationFn: async (childId: string) => {
+       // Since the new Optimized API doesn't necessarily create a 'trip' in the DB but returns route data directly,
+       // we should create an endpoint or just use an existing one. We will create a new simple endpoint in backend if needed.
+       // Actually, the user asked to "trigger a Supabase DB update". If the app has Supabase client, we could do it directly,
+       // but it's better to use an API endpoint. Let's assume an endpoint `/driver/route/optimized/board/${childId}`.
+       const { data } = await apiClient.post(`/driver/route/optimized/board/${childId}`);
+       return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['optimizedRoute'] }),
   });
 };

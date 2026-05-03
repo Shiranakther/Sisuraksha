@@ -1,4 +1,9 @@
 import mongoose from 'mongoose';
+import dns from 'dns';
+
+// Force Google's Public DNS to fix ECONNREFUSED on Windows with Node.js v24
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+dns.setDefaultResultOrder('ipv4first');
 
 const MONGO_URI = process.env.MONGO_URI;
 
@@ -12,7 +17,8 @@ const connectDB = async () => {
     await mongoose.connect(MONGO_URI, {
       serverSelectionTimeoutMS: 5000, 
       socketTimeoutMS: 45000, 
-      autoIndex: process.env.NODE_ENV === 'development', 
+      autoIndex: process.env.NODE_ENV === 'development',
+      family: 4,
     });
     console.log('MongoDB connected successfully.');
   } catch (err) {

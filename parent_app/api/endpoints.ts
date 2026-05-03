@@ -16,4 +16,20 @@ export const API_ENDPOINTS = {
   PARENT_ATTENDANCE: '/parent/my-attendance',
   DECLARE_ATTENDANCE: '/parent/declare-attendance',
   GET_DECLARATION: '/parent/attendance-declaration',
+
+  // Face Recognition
+  FACE_REGISTER: '/face/register',
+  FACE_STATUS: '/face/status',
+  FACE_DELETE: '/face/register',
+  FACE_SERVICE_STATUS: '/face/service/status',
+
+    // Attendance Schedule (Route Management)
+  ATTENDANCE_SCHEDULE_SET: '/parent/attendance-schedule',
+  ATTENDANCE_SCHEDULE_GET: '/parent/attendance-schedule',
+  ATTENDANCE_HISTORY: '/parent/attendance-history',
+  HOLIDAYS: '/parent/holidays',
+
+  // Accident Detection
+  ACCIDENT_ACTIVE: '/accident/active',
+  ACCIDENT_HISTORY: '/accident/history',
 } as const;

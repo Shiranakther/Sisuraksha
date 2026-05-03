@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerDriverProfile,getAssignedChildren,getDriverAttendance,getAttendanceAlerts } from '../controllers/driverController.js'; // Import the controller logic
+import { registerDriverProfile, getAssignedChildren, getDriverAttendance, getAttendanceAlerts, getTodayParentRequests, getTodayTripData, createTrip, getActiveTrip, getBoardingStatus, markChildBoarded, notifyProximity, getOptimizedRoute, markBoardedOptimizedRoute } from '../controllers/driverController.js';
 import { getDriverProfile, updateDriverProfile, deleteDriverProfile } from '../controllers/driverProfileController.js';
 import { getDriverVehicle, createDriverVehicle, updateDriverVehicle, deleteDriverVehicle } from '../controllers/vehicleController.js';
 
@@ -36,7 +36,7 @@ router.get(
 
 router.get(
     '/my-children',
-    authenticateToken, 
+    authenticateToken,
     authorizeRole([ROLES.DRIVER]), // Only drivers can see this
     getAssignedChildren
 );
@@ -46,9 +46,9 @@ router.get(
 
 
 router.get(
-    '/attendance', 
-    authenticateToken, 
-    authorizeRole([ROLES.DRIVER]), 
+    '/attendance',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
     getDriverAttendance
 );
 
@@ -107,6 +107,68 @@ router.delete(
     deleteDriverVehicle
 );
 
+// --- Trip / Route Management Routes ---
+router.get(
+    '/trip/requests',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getTodayParentRequests
+);
+
+router.get(
+    '/trip/today',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getTodayTripData
+);
+
+router.post(
+    '/trip/create',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    createTrip
+);
+router.get(
+    '/trip/active',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getActiveTrip
+);
+
+router.get(
+    '/trip/:tripId/boarding',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getBoardingStatus
+);
+
+router.post(
+    '/trip/:tripId/child/:childId/board',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    markChildBoarded
+);
+
+router.post(
+    '/trip/notify-proximity/:childId',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    notifyProximity
+);
+
+// --- Optimized Route (ADDR) Endpoints ---
+router.get(
+    '/route/optimized',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getOptimizedRoute
+);
+
+router.post(
+    '/route/optimized/board/:childId',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    markBoardedOptimizedRoute
+);
+
 export default router;
-
-
