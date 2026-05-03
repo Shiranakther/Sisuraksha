@@ -7,21 +7,24 @@
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 #include <WiFi.h>
-#include <ESPmDNS.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+#include <HTTPClient.h>
 
 // =====================================================
-// WIFI + DASHBOARD
+// WIFI + BACKEND STREAMING
 // =====================================================
 const char* WIFI_SSID     = "SLT_FIBER_PYt5z";
 const char* WIFI_PASSWORD = "07726Padumapks";
 
-AsyncWebServer server(80);
-AsyncEventSource events("/events");
+// Change this when your laptop/backend IP changes.
+const char* SISURAKSHA_SERVER_HOST = "192.168.1.17";
+const uint16_t NODE_SERVER_PORT = 5000;
+const char* DRIVER_ID = "8c394627-e397-4bd5-928f-4cc66cfebac1";
+const char* DOOR_ESP32_URL = "http://192.168.1.83";
 
-const unsigned long DASHBOARD_BROADCAST_INTERVAL_MS = 500;
-unsigned long lastDashboardBroadcastMs = 0;
+const unsigned long LIVE_POST_INTERVAL_MS = 1000;
+const unsigned long COMMAND_POLL_INTERVAL_MS = 1000;
+unsigned long lastLivePostMs = 0;
+unsigned long lastCommandPollMs = 0;
 
 // =====================================================
 // I2C MODULES: MPU6050 + LCD
@@ -57,138 +60,27 @@ DFRobotDFPlayerMini dfplayer;
 #define DF_RX 13   // ESP32 RX <- DFPlayer TX
 #define DF_TX 14   // ESP32 TX -> DFPlayer RX
 
+bool dfplayerReady = false;
+
 // =====================================================
-// NEW MODULE 1: OPTIMUS AIR780E 4G LTE MODULE
+// AIR780E 4G LTE MODULE
 // =====================================================
 HardwareSerial air780(2);
 
 #define AIR780_RX 16   // ESP32 RX2 <- Air780E TXD
 #define AIR780_TX 17   // ESP32 TX2 -> Air780E RXD
 
-String receiverNumber = "+94756469929";   // change receiver number here
+String receiverNumber = "+94756469929";
 
 // =====================================================
-// NEW MODULE 2: NEO-M8N GPS MODULE
+// NEO-M8N GPS
 // =====================================================
 TinyGPSPlus gps;
 
-#define GPS_RX 4       // ESP32 GPIO4 <- NEO-M8N TX
-#define GPS_TX 5       // not connected physically
+#define GPS_RX 4
+#define GPS_TX 5   // Not connected physically
 
 SoftwareSerial gpsSerial(GPS_RX, GPS_TX);
-
-// =====================================================
-// HTML Dashboard
-// =====================================================
-const char HTML_PAGE[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <title>SISURAKSHA Accident</title>
-  <meta name='viewport' content='width=device-width,initial-scale=1'>
-  <style>
-    *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;background:#151923;color:#e5e7eb;margin:0;padding:15px}
-    h1{color:#38bdf8;text-align:center;margin:0 0 5px}
-    h2{text-align:center;color:#9ca3af;font-size:1em;font-weight:normal;margin:0 0 12px}
-    #bar{text-align:center;padding:8px;border-radius:8px;margin:8px 0;font-weight:bold;font-size:1.05em}
-    .live{background:#064e3b;color:#6ee7b7}
-    .dead{background:#4c0519;color:#fda4af}
-    .section{margin:14px 0}
-    #alert{padding:13px;border-radius:8px;text-align:center;font-size:1.1em;font-weight:bold}
-    .safe{background:#064e3b;color:#6ee7b7}
-    .danger{background:#7f1d1d;color:#fecaca;animation:pulse 0.45s infinite alternate}
-    .warn{background:#713f12;color:#fbbf24}
-    @keyframes pulse{from{box-shadow:0 0 5px #ef4444}to{box-shadow:0 0 18px #ef4444}}
-    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-    .card{background:#1f2937;border:1px solid #334155;border-radius:8px;padding:12px}
-    .label{color:#9ca3af;font-size:0.75em;margin-bottom:4px}
-    .value{font-size:1.2em;font-weight:bold}
-    .chip{display:inline-block;padding:5px 8px;border-radius:999px;font-size:0.78em;font-weight:bold;margin:3px}
-    .on{background:#7f1d1d;color:#fecaca}
-    .off{background:#064e3b;color:#6ee7b7}
-    .muted{color:#94a3b8}
-    #info{text-align:center;color:#38bdf8;font-size:0.8em;margin:8px 0}
-    #meta{text-align:center;color:#64748b;font-size:0.75em;margin-top:15px}
-  </style>
-</head>
-<body>
-  <h1>SISURAKSHA</h1>
-  <h2>Accident Detection Dashboard</h2>
-  <div id='bar' class='dead'>Connecting...</div>
-  <div id='alert' class='safe'>SYSTEM SAFE</div>
-
-  <div class='section grid'>
-    <div class='card'><div class='label'>Roll</div><div class='value'><span id='roll'>0.0</span> deg</div></div>
-    <div class='card'><div class='label'>Pitch</div><div class='value'><span id='pitch'>0.0</span> deg</div></div>
-    <div class='card'><div class='label'>Accel X</div><div class='value' id='ax'>0.00</div></div>
-    <div class='card'><div class='label'>Accel Y / Z</div><div class='value'><span id='ay'>0.00</span> / <span id='az'>0.00</span></div></div>
-  </div>
-
-  <div class='section grid'>
-    <div class='card'><div class='label'>MQ2 Smoke/Gas</div><div class='value' id='mq2'>0</div></div>
-    <div class='card'><div class='label'>Rain/Water</div><div class='value' id='rain'>0</div></div>
-    <div class='card'><div class='label'>FSR Pressure</div><div class='value'><span id='fsr1'>0</span> / <span id='fsr2'>0</span></div></div>
-    <div class='card'><div class='label'>GPS</div><div class='value' id='gps'>No fix</div></div>
-  </div>
-
-  <div class='section card'>
-    <div class='label'>Detected Conditions</div>
-    <div id='chips'></div>
-  </div>
-
-  <p id='info'></p>
-  <p id='meta'>SSE: /events | JSON: /data</p>
-
-<script>
-  var es, frames = 0, t0 = Date.now();
-  function setText(id, value){ document.getElementById(id).textContent = value; }
-  function chip(name, active){
-    return "<span class='chip " + (active ? "on" : "off") + "'>" + name + ": " + (active ? "YES" : "NO") + "</span>";
-  }
-  function update(d){
-    setText('roll', Number(d.roll || 0).toFixed(1));
-    setText('pitch', Number(d.pitch || 0).toFixed(1));
-    setText('ax', Number(d.ax || 0).toFixed(2));
-    setText('ay', Number(d.ay || 0).toFixed(2));
-    setText('az', Number(d.az || 0).toFixed(2));
-    setText('mq2', d.mq2 || 0);
-    setText('rain', d.rain || 0);
-    setText('fsr1', d.fsr1 || 0);
-    setText('fsr2', d.fsr2 || 0);
-    setText('gps', d.gps_valid ? (Number(d.lat).toFixed(6) + ', ' + Number(d.lng).toFixed(6)) : 'No fix');
-
-    var alert = document.getElementById('alert');
-    alert.className = d.alert_active ? 'danger' : (d.any_danger ? 'warn' : 'safe');
-    alert.textContent = d.alert_active
-      ? ('ALERT ACTIVE - ' + (d.alert_type || 'UNKNOWN'))
-      : (d.any_danger ? 'DANGER CONDITION DETECTED' : 'SYSTEM SAFE');
-
-    document.getElementById('chips').innerHTML =
-      chip('Tilt', d.tilt) + chip('Pressure', d.pressure) + chip('Vibration', d.vibration) +
-      chip('Sudden Decel', d.sudden_decel) + chip('Fire', d.fire) +
-      chip('Smoke', d.smoke) + chip('Water', d.water);
-
-    frames++;
-    var now = Date.now();
-    if (now - t0 >= 1000) {
-      setText('info', (frames*1000/(now-t0)).toFixed(1) + ' updates/sec | ' + new Date().toLocaleTimeString());
-      frames = 0; t0 = now;
-    }
-  }
-  function connect(){
-    if (es) es.close();
-    es = new EventSource('/events');
-    es.onopen = function(){ document.getElementById('bar').className='live'; document.getElementById('bar').textContent='Live - Streaming'; };
-    es.onerror = function(){ document.getElementById('bar').className='dead'; document.getElementById('bar').textContent='Reconnecting...'; };
-    es.addEventListener('s', function(e){ try { update(JSON.parse(e.data)); } catch(err){} });
-  }
-  fetch('/data').then(function(r){return r.json()}).then(update).catch(function(){});
-  connect();
-</script>
-</body>
-</html>
-)rawliteral";
 
 // =====================================================
 // THRESHOLDS
@@ -207,7 +99,7 @@ bool VIBRATION_ACTIVE_HIGH = true;
 // =====================================================
 // ALERT SETTINGS
 // =====================================================
-const unsigned long cancelTimeMs = 60000;
+const unsigned long cancelTimeMs = 60000;   // 60 seconds
 
 bool alertActive = false;
 bool alertSent = false;
@@ -226,14 +118,13 @@ int currentAudioFile = 0;
 int currentAlertCode = ALERT_NONE;
 
 // =====================================================
-// LIVE DASHBOARD STATE
+// LIVE STATE FOR BACKEND
 // =====================================================
 float liveRoll = 0.0;
 float livePitch = 0.0;
 float liveAx = 0.0;
 float liveAy = 0.0;
 float liveAz = 0.0;
-
 int liveMq2Value = 0;
 int liveRainValue = 0;
 int liveFsr1Value = 0;
@@ -241,8 +132,6 @@ int liveFsr2Value = 0;
 int liveFireValue = HIGH;
 int liveVib1Value = LOW;
 int liveVib2Value = LOW;
-int liveButtonValue = HIGH;
-
 bool liveTiltDetected = false;
 bool livePressureDetected = false;
 bool liveVibrationDetected = false;
@@ -250,16 +139,30 @@ bool liveSuddenDecelDetected = false;
 bool liveFireDetected = false;
 bool liveSmokeDetected = false;
 bool liveWaterDetected = false;
-bool liveGpsValid = false;
-double liveGpsLat = 0.0;
-double liveGpsLng = 0.0;
-uint32_t liveGpsSatellites = 0;
-unsigned long liveUpdatedAtMs = 0;
+unsigned long liveRemainingSeconds = 0;
+
+// =====================================================
+// AUDIO REPEAT SETTINGS
+// =====================================================
+unsigned long lastAudioPlayTime = 0;
+const unsigned long audioRepeatInterval = 5000; // repeat every 5 seconds
+const unsigned long alertRearmDelayMs = 15000;  // avoid immediate re-trigger after cancel
+unsigned long alertSuppressedUntilMs = 0;
 
 // =====================================================
 // LCD HELPER
 // =====================================================
 void showLCD(String line1, String line2) {
+  static String lastLine1 = "";
+  static String lastLine2 = "";
+
+  if (line1 == lastLine1 && line2 == lastLine2) {
+    return;
+  }
+
+  lastLine1 = line1;
+  lastLine2 = line2;
+
   lcd.clear();
 
   lcd.setCursor(0, 0);
@@ -296,7 +199,7 @@ String readAirResponse(unsigned long timeout) {
 }
 
 String sendAirCommand(String cmd, unsigned long waitTime = 1000) {
-  Serial.print("\nAIR780E Command: ");
+  Serial.print("\nAir780E Command: ");
   Serial.println(cmd);
 
   air780.println(cmd);
@@ -315,7 +218,6 @@ bool waitForNetwork(unsigned long timeoutMs) {
 
     String cregResponse = sendAirCommand("AT+CREG?", 1000);
     String ceregResponse = sendAirCommand("AT+CEREG?", 1000);
-    sendAirCommand("AT+COPS?", 1000);
 
     if (
       cregResponse.indexOf("+CREG: 0,1") != -1 ||
@@ -329,11 +231,11 @@ bool waitForNetwork(unsigned long timeoutMs) {
       return true;
     }
 
-    Serial.println("Air780E network not registered yet...");
+    Serial.println("Network not registered yet...");
     delay(5000);
   }
 
-  Serial.println("Air780E network registration timeout.");
+  Serial.println("Network registration timeout.");
   return false;
 }
 
@@ -358,7 +260,8 @@ void sendSMS(String number, String message) {
   air780.print(message);
   delay(500);
 
-  air780.write(26);
+  air780.write(26);   // CTRL + Z
+
   Serial.println("CTRL+Z sent. Waiting for SMS response...");
 
   String finalResponse = readAirResponse(30000);
@@ -366,7 +269,7 @@ void sendSMS(String number, String message) {
   if (finalResponse.indexOf("+CMGS:") != -1 && finalResponse.indexOf("OK") != -1) {
     Serial.println("SMS SENT SUCCESSFULLY.");
   } else {
-    Serial.println("SMS may have failed. Check balance, network, or Air780E SMS support.");
+    Serial.println("SMS may have failed.");
   }
 }
 
@@ -399,7 +302,7 @@ void makeCall(String number) {
 }
 
 // =====================================================
-// NEO-M8N GPS FUNCTIONS
+// GPS FUNCTIONS
 // =====================================================
 void updateGPS() {
   while (gpsSerial.available()) {
@@ -419,7 +322,7 @@ String getGPSLink() {
 
 void printGPSStatus() {
   if (gps.location.isValid()) {
-    Serial.print("NEO-M8N GPS: ");
+    Serial.print("GPS: ");
     Serial.print(gps.location.lat(), 6);
     Serial.print(",");
     Serial.println(gps.location.lng(), 6);
@@ -427,7 +330,7 @@ void printGPSStatus() {
     Serial.print("Google Maps: ");
     Serial.println(getGPSLink());
   } else {
-    Serial.println("NEO-M8N GPS: Location not fixed yet");
+    Serial.println("GPS: Location not fixed yet");
   }
 
   if (gps.satellites.isValid()) {
@@ -446,16 +349,36 @@ String jsonString(String value) {
   return "\"" + value + "\"";
 }
 
-String buildJSON() {
-  bool anyDanger =
-    liveTiltDetected ||
-    livePressureDetected ||
-    liveVibrationDetected ||
-    liveSuddenDecelDetected ||
-    liveFireDetected ||
-    liveSmokeDetected ||
-    liveWaterDetected;
+String buildBackendUrl(const char* path) {
+  String url = "http://";
+  url += SISURAKSHA_SERVER_HOST;
+  url += ":";
+  url += String(NODE_SERVER_PORT);
+  url += path;
+  return url;
+}
 
+void postJSON(const String& url, const String& body, const char* label) {
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(700);
+
+  int code = http.POST(body);
+  if (code >= 200 && code < 300) {
+    Serial.printf("[%s] Posted OK\n", label);
+  } else {
+    Serial.printf("[%s] POST failed: %d\n", label, code);
+  }
+
+  http.end();
+}
+
+String buildSensorJSON() {
   String j = "{";
   j += "\"roll\":" + String(liveRoll, 2) + ",";
   j += "\"pitch\":" + String(livePitch, 2) + ",";
@@ -469,7 +392,6 @@ String buildJSON() {
   j += "\"fire_do\":" + String(liveFireValue) + ",";
   j += "\"vibration1_do\":" + String(liveVib1Value) + ",";
   j += "\"vibration2_do\":" + String(liveVib2Value) + ",";
-  j += "\"button\":" + String(liveButtonValue) + ",";
   j += "\"tilt\":" + String(liveTiltDetected ? "true" : "false") + ",";
   j += "\"pressure\":" + String(livePressureDetected ? "true" : "false") + ",";
   j += "\"vibration\":" + String(liveVibrationDetected ? "true" : "false") + ",";
@@ -477,35 +399,133 @@ String buildJSON() {
   j += "\"fire\":" + String(liveFireDetected ? "true" : "false") + ",";
   j += "\"smoke\":" + String(liveSmokeDetected ? "true" : "false") + ",";
   j += "\"water\":" + String(liveWaterDetected ? "true" : "false") + ",";
-  j += "\"any_danger\":" + String(anyDanger ? "true" : "false") + ",";
+  j += "\"gps_valid\":" + String(gps.location.isValid() ? "true" : "false") + ",";
+  j += "\"lat\":" + String(gps.location.isValid() ? gps.location.lat() : 0.0, 6) + ",";
+  j += "\"lng\":" + String(gps.location.isValid() ? gps.location.lng() : 0.0, 6) + ",";
+  j += "\"satellites\":" + String(gps.satellites.isValid() ? gps.satellites.value() : 0);
+  j += "}";
+  return j;
+}
+
+String buildLiveStateJSON() {
+  bool anyDanger =
+    liveTiltDetected ||
+    livePressureDetected ||
+    liveVibrationDetected ||
+    liveSuddenDecelDetected ||
+    liveFireDetected ||
+    liveSmokeDetected ||
+    liveWaterDetected;
+
+  String j = "{";
+  j += "\"driver_id\":\"";
+  j += DRIVER_ID;
+  j += "\",";
+  j += "\"online\":true,";
   j += "\"alert_active\":" + String(alertActive ? "true" : "false") + ",";
   j += "\"alert_code\":" + String(currentAlertCode) + ",";
   j += "\"alert_type\":" + jsonString(currentAlertType) + ",";
   j += "\"alert_message\":" + jsonString(currentAlertMessage) + ",";
-  j += "\"gps_valid\":" + String(liveGpsValid ? "true" : "false") + ",";
-  j += "\"lat\":" + String(liveGpsLat, 6) + ",";
-  j += "\"lng\":" + String(liveGpsLng, 6) + ",";
-  j += "\"satellites\":" + String(liveGpsSatellites) + ",";
+  j += "\"remaining_seconds\":" + String(liveRemainingSeconds) + ",";
+  j += "\"any_danger\":" + String(anyDanger ? "true" : "false") + ",";
+  j += "\"sensor_data\":" + buildSensorJSON() + ",";
   j += "\"ts\":" + String(millis());
   j += "}";
   return j;
 }
 
-void broadcastDashboard(bool force = false) {
+void postLiveState(bool force = false) {
   unsigned long nowMs = millis();
-  if (!force && nowMs - lastDashboardBroadcastMs < DASHBOARD_BROADCAST_INTERVAL_MS) {
+  if (!force && nowMs - lastLivePostMs < LIVE_POST_INTERVAL_MS) {
+    return;
+  }
+  lastLivePostMs = nowMs;
+  postJSON(buildBackendUrl("/api/accident/live-state"), buildLiveStateJSON(), "AccidentLive");
+}
+
+void postAccidentAlert(String status) {
+  String evidence = "";
+  if (liveTiltDetected) evidence += "TILT ";
+  if (livePressureDetected) evidence += "PRESSURE ";
+  if (liveVibrationDetected) evidence += "VIBRATION ";
+  if (liveSuddenDecelDetected) evidence += "SUDDEN_DECEL ";
+  if (liveFireDetected) evidence += "FIRE_SENSOR ";
+  if (liveSmokeDetected) evidence += "SMOKE ";
+  if (liveWaterDetected) evidence += "WATER ";
+  evidence.trim();
+
+  String j = "{";
+  j += "\"driver_id\":\"";
+  j += DRIVER_ID;
+  j += "\",";
+  j += "\"alertType\":" + jsonString(currentAlertType.length() ? currentAlertType : "ACCIDENT") + ",";
+  j += "\"status\":" + jsonString(status) + ",";
+  j += "\"confidence\":100,";
+  j += "\"evidence\":" + jsonString(evidence) + ",";
+  j += "\"sensorData\":" + buildSensorJSON();
+  j += "}";
+
+  postJSON(buildBackendUrl("/api/accident/alert"), j, "AccidentAlert");
+}
+
+void postAccidentCancel() {
+  String j = "{";
+  j += "\"driver_id\":\"";
+  j += DRIVER_ID;
+  j += "\"";
+  j += "}";
+  postJSON(buildBackendUrl("/api/accident/cancel"), j, "AccidentCancel");
+}
+
+void commandEmergencyDoorOpen() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[Door] WiFi offline. Cannot command emergency door.");
     return;
   }
 
-  lastDashboardBroadcastMs = nowMs;
+  String url = String(DOOR_ESP32_URL) + "/open";
+  String j = "{";
+  j += "\"busId\":\"UNKNOWN\",";
+  j += "\"alertType\":";
+  j += jsonString(currentAlertType.length() ? currentAlertType : "ACCIDENT");
+  j += "}";
 
-  if (events.count() > 0) {
-    String json = buildJSON();
-    events.send(json.c_str(), "s", millis());
-  }
+  postJSON(url, j, "DoorOpen");
 }
 
-void setupDashboardServer() {
+bool pollCancelCommand() {
+  if (WiFi.status() != WL_CONNECTED || !alertActive) {
+    return false;
+  }
+
+  unsigned long nowMs = millis();
+  if (nowMs - lastCommandPollMs < COMMAND_POLL_INTERVAL_MS) {
+    return false;
+  }
+  lastCommandPollMs = nowMs;
+
+  String url = buildBackendUrl("/api/accident/command?driver_id=");
+  url += DRIVER_ID;
+
+  HTTPClient http;
+  http.begin(url);
+  http.setTimeout(500);
+  int code = http.GET();
+  bool cancelRequested = false;
+
+  if (code == 200) {
+    String body = http.getString();
+    cancelRequested = body.indexOf("\"cancelRequested\":true") >= 0;
+    if (cancelRequested) {
+      Serial.println("[COMMAND] Cancel requested from frontend.");
+    }
+  }
+
+  http.end();
+  return cancelRequested;
+}
+
+void setupWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
@@ -519,52 +539,50 @@ void setupDashboardServer() {
     attempts++;
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\n[WiFi] Failed. Dashboard disabled, accident monitoring continues.");
-    return;
-  }
-
-  Serial.println();
-  Serial.println("==============================");
-  Serial.println(" WiFi Connected!");
-  Serial.print(" Dashboard: http://");
-  Serial.println(WiFi.localIP());
-
-  if (MDNS.begin("sisuraksha-accident")) {
-    Serial.println(" mDNS: http://sisuraksha-accident.local");
-    MDNS.addService("http", "tcp", 80);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.print("WiFi connected. IP: ");
+    Serial.println(WiFi.localIP());
   } else {
-    Serial.println(" mDNS failed - use IP address");
+    Serial.println("\nWiFi failed. Accident monitoring continues without backend stream.");
   }
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
-    req->send_P(200, "text/html", HTML_PAGE);
-  });
-
-  server.on("/data", HTTP_GET, [](AsyncWebServerRequest* req) {
-    String json = buildJSON();
-    AsyncWebServerResponse* res =
-      req->beginResponse(200, "application/json", json);
-    res->addHeader("Access-Control-Allow-Origin", "*");
-    req->send(res);
-  });
-
-  events.onConnect([](AsyncEventSourceClient* client) {
-    Serial.println("[SSE] Client connected");
-    String json = buildJSON();
-    client->send(json.c_str(), "s", millis(), 1000);
-  });
-  server.addHandler(&events);
-
-  server.begin();
-  Serial.println("Dashboard server ready.");
 }
 
 // =====================================================
-// ALERT FUNCTIONS
+// AUDIO FUNCTION
+// =====================================================
+void playWarningAudio(int audioFile) {
+  if (dfplayerReady && audioFile > 0) {
+    Serial.print("Playing audio file: ");
+    Serial.println(audioFile);
+    dfplayer.play(audioFile);
+    lastAudioPlayTime = millis();
+  } else {
+    Serial.println("Audio skipped. DFPlayer not ready.");
+  }
+}
+
+void repeatWarningAudioIfNeeded() {
+  if (dfplayerReady && currentAudioFile > 0) {
+    if (millis() - lastAudioPlayTime >= audioRepeatInterval) {
+      Serial.print("Repeating audio file: ");
+      Serial.println(currentAudioFile);
+      dfplayer.play(currentAudioFile);
+      lastAudioPlayTime = millis();
+    }
+  }
+}
+
+// =====================================================
+// ALERT START FUNCTION
 // =====================================================
 void startAlert(int alertCode, String alertType, String alertMessage, int audioFile) {
   if (alertActive) {
+    return;
+  }
+
+  if (millis() < alertSuppressedUntilMs) {
+    Serial.println("Alert condition still present, but countdown is suppressed after cancel.");
     return;
   }
 
@@ -590,15 +608,15 @@ void startAlert(int alertCode, String alertType, String alertMessage, int audioF
 
   showLCD(currentAlertType, "Cancel: 60s");
 
-  if (currentAudioFile > 0) {
-    Serial.print("Playing audio file: ");
-    Serial.println(currentAudioFile);
-    dfplayer.play(currentAudioFile);
-  }
-
-  broadcastDashboard(true);
+  playWarningAudio(currentAudioFile);
+  liveRemainingSeconds = cancelTimeMs / 1000;
+  postAccidentAlert("PENDING");
+  postLiveState(true);
 }
 
+// =====================================================
+// CANCEL ALERT
+// =====================================================
 void cancelAlert() {
   Serial.println("\n======================================");
   Serial.println("ALERT CANCELLED BY DRIVER");
@@ -613,29 +631,36 @@ void cancelAlert() {
   currentAlertType = "";
   currentAlertMessage = "";
   currentAudioFile = 0;
+  liveRemainingSeconds = 0;
+  alertSuppressedUntilMs = millis() + alertRearmDelayMs;
 
-  broadcastDashboard(true);
+  postAccidentCancel();
+  postLiveState(true);
   delay(2000);
 }
 
+// =====================================================
+// CONFIRM ALERT AFTER 60 SECONDS
+// =====================================================
 void confirmAlert() {
   Serial.println("\n======================================");
   Serial.println("ALERT CONFIRMED");
   Serial.print("Confirmed Type: ");
   Serial.println(currentAlertType);
-  Serial.println("Sending SMS and making call...");
+  Serial.println("Sending SMS and calling emergency number...");
   Serial.println("======================================");
 
   showLCD("ALERT CONFIRMED", "SMS + Call");
-
-  String gpsLink = getGPSLink();
+  postAccidentAlert("CONFIRMED");
+  postLiveState(true);
+  commandEmergencyDoorOpen();
 
   String smsMessage = "SISURAKSHA ALERT: ";
   smsMessage += currentAlertType;
   smsMessage += ". ";
   smsMessage += currentAlertMessage;
   smsMessage += ". Location: ";
-  smsMessage += gpsLink;
+  smsMessage += getGPSLink();
 
   if (!alertSent) {
     if (waitForNetwork(60000)) {
@@ -645,7 +670,7 @@ void confirmAlert() {
       alertSent = true;
     } else {
       Serial.println("SMS/Call not sent. Air780E network not registered.");
-      showLCD("Alert Failed", "No Network");
+      showLCD("Call Failed", "No Network");
       delay(3000);
     }
   }
@@ -656,9 +681,10 @@ void confirmAlert() {
   currentAlertType = "";
   currentAlertMessage = "";
   currentAudioFile = 0;
+  liveRemainingSeconds = 0;
 
   showLCD("SISURAKSHA", "Monitoring...");
-  broadcastDashboard(true);
+  postLiveState(true);
 }
 
 // =====================================================
@@ -670,10 +696,9 @@ void setup() {
 
   Serial.println("======================================");
   Serial.println("SISURAKSHA ACCIDENT DETECTION SYSTEM");
-  Serial.println("NEO-M8N GPS + AIR780E 4G LTE");
   Serial.println("======================================");
 
-  setupDashboardServer();
+  setupWiFi();
 
   pinMode(FIRE_DO, INPUT);
   pinMode(VIBRATION1_DO, INPUT);
@@ -685,8 +710,17 @@ void setup() {
   lcd.init();
   lcd.backlight();
 
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("SISURAKSHA");
+  lcd.setCursor(0, 1);
+  lcd.print("LCD TEST OK");
+  delay(3000);
+
   showLCD("SISURAKSHA", "Starting...");
   delay(1500);
+
+  Serial.println("Initializing MPU6050...");
 
   if (!mpu.begin()) {
     Serial.println("MPU6050 not found. Check wiring!");
@@ -704,22 +738,24 @@ void setup() {
 
   dfSerial.begin(9600, SERIAL_8N1, DF_RX, DF_TX);
 
-  if (!dfplayer.begin(dfSerial)) {
-    Serial.println("DFPlayer not detected. Check wiring, SD card and speaker.");
-    showLCD("DFPlayer Error", "Check Module");
-    while (1) {
-      delay(10);
-    }
-  }
+  Serial.println("Initializing DFPlayer Mini...");
 
-  Serial.println("DFPlayer detected.");
-  dfplayer.volume(25);
+  if (!dfplayer.begin(dfSerial)) {
+    Serial.println("DFPlayer not detected. System will continue without sound.");
+    showLCD("DFPlayer Error", "No Sound Mode");
+    dfplayerReady = false;
+    delay(2000);
+  } else {
+    Serial.println("DFPlayer detected.");
+    dfplayer.volume(25);
+    dfplayerReady = true;
+  }
 
   air780.begin(9600, SERIAL_8N1, AIR780_RX, AIR780_TX);
 
-  Serial.println("Initializing Air780E 4G LTE...");
+  Serial.println("Initializing Air780E...");
   showLCD("Air780E", "Starting...");
-  delay(15000);
+  delay(10000);
 
   sendAirCommand("AT", 1000);
   sendAirCommand("AT+CMEE=2", 1000);
@@ -727,12 +763,10 @@ void setup() {
   sendAirCommand("AT+CSQ", 1000);
   sendAirCommand("AT+CREG?", 1000);
   sendAirCommand("AT+CEREG?", 1000);
-  sendAirCommand("AT+COPS?", 1000);
 
   gpsSerial.begin(9600);
 
   Serial.println("NEO-M8N GPS started.");
-  Serial.println("Keep GPS antenna near window or outside for location fix.");
   Serial.println("System Ready.");
 
   showLCD("SISURAKSHA", "Monitoring...");
@@ -766,7 +800,6 @@ void loop() {
   float pitch = atan2(-ax, sqrt((ay * ay) + (az * az))) * 180.0 / PI;
 
   bool tiltDetected = abs(roll) >= tiltThreshold || abs(pitch) >= tiltThreshold;
-
   bool pressureDetected = fsr1Value > fsrThreshold || fsr2Value > fsrThreshold;
 
   bool vibration1Detected;
@@ -806,7 +839,6 @@ void loop() {
   liveFireValue = fireValue;
   liveVib1Value = vib1Value;
   liveVib2Value = vib2Value;
-  liveButtonValue = buttonValue;
   liveTiltDetected = tiltDetected;
   livePressureDetected = pressureDetected;
   liveVibrationDetected = vibrationDetected;
@@ -814,13 +846,6 @@ void loop() {
   liveFireDetected = fireDetected;
   liveSmokeDetected = smokeDetected;
   liveWaterDetected = waterDetected;
-  liveGpsValid = gps.location.isValid();
-  liveGpsLat = liveGpsValid ? gps.location.lat() : 0.0;
-  liveGpsLng = liveGpsValid ? gps.location.lng() : 0.0;
-  liveGpsSatellites = gps.satellites.isValid() ? gps.satellites.value() : 0;
-  liveUpdatedAtMs = millis();
-
-  broadcastDashboard();
 
   Serial.println("--------------------------------------");
   Serial.print("Roll: ");
@@ -859,6 +884,9 @@ void loop() {
 
   printGPSStatus();
 
+  Serial.print("DFPlayer Ready: ");
+  Serial.println(dfplayerReady ? "YES" : "NO");
+
   if (alertActive) {
     unsigned long elapsed = millis() - alertStartTime;
     unsigned long remaining = 0;
@@ -866,6 +894,8 @@ void loop() {
     if (elapsed < cancelTimeMs) {
       remaining = (cancelTimeMs - elapsed) / 1000;
     }
+    liveRemainingSeconds = remaining;
+    postLiveState();
 
     Serial.print("ALERT ACTIVE: ");
     Serial.println(currentAlertType);
@@ -875,7 +905,9 @@ void loop() {
 
     showLCD(currentAlertType, "Cancel: " + String(remaining) + "s");
 
-    if (buttonPressed) {
+    repeatWarningAudioIfNeeded();
+
+    if (buttonPressed || pollCancelCommand()) {
       cancelAlert();
       delay(500);
       return;
@@ -893,17 +925,25 @@ void loop() {
 
   if (fireDetected) {
     startAlert(ALERT_FIRE, "FIRE DETECT", "Fire sensor triggered", 2);
-  } else if (smokeDetected) {
-    startAlert(ALERT_FIRE, "FIRE DETECT", "High smoke/gas detected by MQ2", 2);
-  } else if (waterDetected) {
-    startAlert(ALERT_WATER, "WATER DAMAGE", "Water detected by rain sensor", 3);
-  } else if (tiltDetected) {
-    startAlert(ALERT_ACCIDENT, "ACCIDENT", "Bus tilted more than 30 degrees", 1);
-  } else if (pressureDetected && vibrationDetected) {
+  } 
+  else if (smokeDetected) {
+    startAlert(ALERT_FIRE, "FIRE DETECT", "High smoke/gas detected", 2);
+  } 
+  else if (waterDetected) {
+    startAlert(ALERT_WATER, "WATER DAMAGE", "Water detected", 3);
+  } 
+  else if (tiltDetected) {
+    startAlert(ALERT_ACCIDENT, "ACCIDENT", "Bus tilted over 30 degrees", 1);
+  } 
+  else if (pressureDetected && vibrationDetected) {
     startAlert(ALERT_ACCIDENT, "ACCIDENT", "Pressure and vibration detected", 1);
-  } else if (suddenDecelDetected) {
+  } 
+  else if (suddenDecelDetected) {
     startAlert(ALERT_ACCIDENT, "ACCIDENT", "Sudden speed reduction detected", 1);
-  } else {
+  } 
+  else {
+    liveRemainingSeconds = 0;
+    postLiveState();
     showLCD("SISURAKSHA", "Monitoring...");
     Serial.println("System Status: Normal monitoring");
   }

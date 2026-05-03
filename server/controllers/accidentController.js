@@ -8,25 +8,30 @@ import {
 } from '../service/emailService.js';
 
 // ─── Door ESP32 Config ──────────────────────────────────────────────────────
-// The door ESP32 runs on port 81 — set via env or fallback
-const DOOR_ESP32_URL = process.env.DOOR_ESP32_URL || 'http://10.60.136.49:81';
+// Accident ESP32 triggers /open directly. Backend only polls status and resets.
+const DOOR_ESP32_URL = process.env.DOOR_ESP32_URL || 'http://192.168.1.83';
+
+const latestAccidentLiveState = new Map();
+const accidentCancelCommands = new Map();
+
+function getNewestAccidentLiveState() {
+  let newest = null;
+  for (const state of latestAccidentLiveState.values()) {
+    if (!newest) {
+      newest = state;
+      continue;
+    }
+
+    const stateTime = new Date(state.updated_at || 0).getTime();
+    const newestTime = new Date(newest.updated_at || 0).getTime();
+    if (stateTime > newestTime) {
+      newest = state;
+    }
+  }
+  return newest;
+}
 
 // ─── Door ESP32 helpers ─────────────────────────────────────────────────────
-
-async function triggerDoorOpen(vehicleNumber, alertType) {
-  try {
-    const resp = await fetch(`${DOOR_ESP32_URL}/open`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ busId: vehicleNumber || 'UNKNOWN', alertType }),
-      signal: AbortSignal.timeout(3000),
-    });
-    const data = await resp.json();
-    console.log(`[DOOR] Open triggered: ${data.status} — ${data.message || ''}`);
-  } catch (e) {
-    console.error('[DOOR] Failed to trigger door open:', e.message);
-  }
-}
 
 async function triggerDoorReset() {
   try {
@@ -55,6 +60,26 @@ async function resolveDriverByEmail(email) {
     [email]
   );
   return res.rows[0] || null;
+}
+
+async function resolveDriverById(driverId) {
+  const res = await pgPool.query(
+    `SELECT v.id AS vehicle_id, v.vehicle_number, v.driver_id,
+            u.first_name, u.last_name, u.email AS driver_email
+     FROM public.driver d
+     JOIN public.users u ON d.user_id = u.id
+     LEFT JOIN public.vehicles v ON v.driver_id = d.id
+     WHERE d.id = $1
+     LIMIT 1`,
+    [driverId]
+  );
+  return res.rows[0] || null;
+}
+
+async function resolveDriverFromPayload({ driverEmail, driver_id }) {
+  if (driver_id) return resolveDriverById(driver_id);
+  if (driverEmail) return resolveDriverByEmail(driverEmail);
+  return null;
 }
 
 // ─── Shared: find all parents for a given driver ────────────────────────────
@@ -240,17 +265,17 @@ async function notifyCancellation(driverId, driverName, vehicleNumber) {
 
 export const receiveAlert = async (req, res, next) => {
   try {
-    const { driverEmail, alertType, status, confidence, evidence, sensorData } = req.body;
+    const { driverEmail, driver_id, alertType, status, confidence, evidence, sensorData } = req.body;
 
-    if (!driverEmail || !alertType || !status) {
-      return next(new AppError('driverEmail, alertType and status are required', 400));
+    if ((!driverEmail && !driver_id) || !alertType || !status) {
+      return next(new AppError('driverEmail or driver_id, alertType and status are required', 400));
     }
 
     // 1. Resolve driver by email
-    const driver = await resolveDriverByEmail(driverEmail);
+    const driver = await resolveDriverFromPayload({ driverEmail, driver_id });
     if (!driver) {
-      console.error('[ACCIDENT] No driver found for email:', driverEmail);
-      return next(new AppError('No driver found for the given email', 404));
+      console.error('[ACCIDENT] No driver found for payload:', { driverEmail, driver_id });
+      return next(new AppError('No driver found for the given driver identity', 404));
     }
 
     const driverName = `${driver.first_name || ''} ${driver.last_name || ''}`.trim() || 'Unknown Driver';
@@ -307,9 +332,8 @@ export const receiveAlert = async (req, res, next) => {
         [driver.driver_id, alertId]
       );
 
-      // 5b. Trigger emergency door open on the door ESP32
-      triggerDoorOpen(vehicleNumber, alertType)
-        .catch(err => console.error('[DOOR] Door trigger error:', err));
+      // Door opening is commanded directly by the accident ESP32.
+      // Backend keeps door status/reset visibility for the app.
     }
 
     // 6. Notify all parents (async — don't block ESP32 response)
@@ -342,15 +366,15 @@ export const receiveAlert = async (req, res, next) => {
 
 export const cancelAlert = async (req, res, next) => {
   try {
-    const { driverEmail } = req.body;
+    const { driverEmail, driver_id } = req.body;
 
-    if (!driverEmail) {
-      return next(new AppError('driverEmail is required', 400));
+    if (!driverEmail && !driver_id) {
+      return next(new AppError('driverEmail or driver_id is required', 400));
     }
 
-    const driver = await resolveDriverByEmail(driverEmail);
+    const driver = await resolveDriverFromPayload({ driverEmail, driver_id });
     if (!driver) {
-      return next(new AppError('No driver found for the given email', 404));
+      return next(new AppError('No driver found for the given driver identity', 404));
     }
 
     const driverName = `${driver.first_name || ''} ${driver.last_name || ''}`.trim();
@@ -393,6 +417,138 @@ export const cancelAlert = async (req, res, next) => {
 // GET /api/accident/active
 // For parent/driver apps — get any active (PENDING/CONFIRMED) alerts
 // ═════════════════════════════════════════════════════════════════════════════
+
+export const cancelActiveAlertFromApp = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const driverRes = await pgPool.query(
+      `SELECT d.id AS driver_id, v.vehicle_number, u.first_name, u.last_name
+       FROM public.driver d
+       JOIN public.users u ON d.user_id = u.id
+       LEFT JOIN public.vehicles v ON v.driver_id = d.id AND v.is_active = true
+       WHERE d.user_id = $1
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (driverRes.rowCount === 0) {
+      return next(new AppError('Driver profile not found for this user', 404));
+    }
+
+    const driver = driverRes.rows[0];
+    const driverName = `${driver.first_name || ''} ${driver.last_name || ''}`.trim();
+
+    const command = {
+      requestedAt: new Date().toISOString(),
+      source: 'driver_app',
+    };
+    accidentCancelCommands.set(driver.driver_id, command);
+
+    const result = await pgPool.query(
+      `UPDATE public.accident_alerts
+       SET status = 'CANCELLED', resolved_at = NOW()
+       WHERE driver_id = $1 AND status = 'PENDING'
+       RETURNING id`,
+      [driver.driver_id]
+    );
+
+    if (result.rowCount > 0) {
+      notifyCancellation(driver.driver_id, driverName, driver.vehicle_number)
+        .catch(err => console.error('[ACCIDENT] App cancel notification error:', err));
+      triggerDoorReset()
+        .catch(err => console.error('[DOOR] Door reset error:', err));
+    }
+
+    const live = latestAccidentLiveState.get(driver.driver_id) || getNewestAccidentLiveState();
+    if (live) {
+      const liveDriverId = live.driver_id || driver.driver_id;
+      accidentCancelCommands.set(liveDriverId, command);
+      latestAccidentLiveState.set(liveDriverId, {
+        ...live,
+        alert_active: false,
+        remaining_seconds: 0,
+        cancelled_from_app: true,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      status: 'success',
+      message: 'Accident countdown stop requested',
+      cancelledCount: result.rowCount,
+    });
+  } catch (error) {
+    console.error('[ACCIDENT] cancelActiveAlertFromApp error:', error);
+    next(error instanceof AppError ? error : new AppError('Server error cancelling active accident alert', 500));
+  }
+};
+
+export const receiveLiveState = async (req, res) => {
+  const driverId = req.body.driver_id || 'default';
+  const state = {
+    ...req.body,
+    driver_id: driverId,
+    online: true,
+    updated_at: new Date().toISOString(),
+  };
+
+  latestAccidentLiveState.set(driverId, state);
+  console.log(
+    `[ACCIDENT-LIVE] driver=${driverId} alert=${state.alert_active ? 'YES' : 'NO'} ` +
+    `type=${state.alert_type || 'NONE'} remaining=${state.remaining_seconds ?? 0}`
+  );
+  res.status(200).json({ status: 'success', data: state });
+};
+
+export const getLiveState = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const role = req.user.role;
+
+    let driverIds = [];
+    if (role === 'Driver') {
+      const d = await pgPool.query('SELECT id FROM public.driver WHERE user_id = $1', [userId]);
+      if (d.rowCount > 0) driverIds = [d.rows[0].id];
+    } else {
+      const p = await pgPool.query('SELECT id FROM public.parent WHERE user_id = $1', [userId]);
+      if (p.rowCount > 0) {
+        const children = await pgPool.query(
+          'SELECT DISTINCT assigned_driver_id FROM public.children WHERE parent_id = $1 AND assigned_driver_id IS NOT NULL',
+          [p.rows[0].id]
+        );
+        driverIds = children.rows.map(r => r.assigned_driver_id);
+      }
+    }
+
+    let state = driverIds
+      .map(driverId => latestAccidentLiveState.get(driverId))
+      .find(Boolean) || null;
+
+    if (!state) {
+      state = getNewestAccidentLiveState();
+    }
+
+    res.json({ status: 'success', data: state });
+  } catch (error) {
+    next(error instanceof AppError ? error : new AppError('Error fetching accident live state', 500));
+  }
+};
+
+export const getDeviceCommand = (req, res) => {
+  const driverId = req.query.driver_id || 'default';
+  const command = accidentCancelCommands.get(driverId);
+  const cancelRequested = !!command;
+
+  if (cancelRequested) {
+    accidentCancelCommands.delete(driverId);
+  }
+
+  res.json({
+    status: 'success',
+    cancelRequested,
+    command: cancelRequested ? command : null,
+  });
+};
 
 export const getActiveAlerts = async (req, res, next) => {
   try {
@@ -577,5 +733,42 @@ export const getDoorStatus = async (req, res, next) => {
         updatedAt: latestDoorState.updatedAt,
       },
     });
+  }
+};
+
+export const resetDoorFromApp = async (req, res, next) => {
+  try {
+    const resp = await fetch(`${DOOR_ESP32_URL}/reset`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(3000),
+    });
+    const resetData = await resp.json().catch(() => ({}));
+
+    let statusData = {
+      state: 'RESET',
+      doorOpen: false,
+      pirBlocked: false,
+      pirClear: false,
+      busId: '',
+      accidentType: '',
+      message: resetData.message || 'Door reset',
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      const statusResp = await fetch(`${DOOR_ESP32_URL}/status`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      const polled = await statusResp.json();
+      statusData = { ...polled, updatedAt: new Date().toISOString() };
+    } catch {
+      // Keep resetData fallback above.
+    }
+
+    latestDoorState = statusData;
+    res.json({ status: 'success', data: latestDoorState });
+  } catch (error) {
+    console.error('[DOOR] Door reset from app failed:', error.message);
+    next(new AppError('Failed to reset emergency door', 502));
   }
 };
