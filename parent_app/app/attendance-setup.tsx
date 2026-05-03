@@ -36,7 +36,7 @@ interface ChildScheduleState {
   child_id: string;
   child_name: string;
   is_present: boolean;
-  schedule_type: 'BOTH' | 'MORNING' | 'EVENING';
+  schedule_type: 'BOTH' | 'MORNING' | 'AFTERNOON';
   pickup_lat?: number;
   pickup_lon?: number;
   pickup_address?: string;
@@ -349,7 +349,7 @@ export default function AttendanceSetupScreen() {
                   <View className="px-4 py-3 border-b border-slate-100">
                     <Text className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Schedule Type</Text>
                     <View className="flex-row gap-2">
-                      {(['MORNING', 'EVENING', 'BOTH'] as const).map(type => (
+                      {(['MORNING', 'AFTERNOON', 'BOTH'] as const).map(type => (
                         <TouchableOpacity
                           key={type}
                           onPress={() => updateSchedule(child.id, { schedule_type: type })}
@@ -358,7 +358,7 @@ export default function AttendanceSetupScreen() {
                           }`}
                         >
                           <Text className={`text-xs font-semibold ${s.schedule_type === type ? 'text-white' : 'text-slate-600'}`}>
-                            {type === 'MORNING' ? '🌅 Morning' : type === 'EVENING' ? '🌇 Evening' : '☀️ Both'}
+                            {type === 'MORNING' ? '🌅 Morning' : type === 'AFTERNOON' ? '🌇 Afternoon' : '☀️ Both'}
                           </Text>
                         </TouchableOpacity>
                       ))}

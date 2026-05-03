@@ -10,7 +10,7 @@ import { useMyChildren, useGetAttendanceHistory, useGetHolidays } from '../hooks
 const ROUTE_LABEL: Record<string, { label: string; emoji: string; bg: string; text: string }> = {
   BOTH: { label: 'Both Ways', emoji: '☀️', bg: 'bg-blue-100', text: 'text-blue-700' },
   MORNING: { label: 'Morning', emoji: '🌅', bg: 'bg-amber-100', text: 'text-amber-700' },
-  EVENING: { label: 'Evening', emoji: '🌇', bg: 'bg-purple-100', text: 'text-purple-700' },
+  AFTERNOON: { label: 'Afternoon', emoji: '🌇', bg: 'bg-purple-100', text: 'text-purple-700' },
 };
 
 type TabFilter = 'UPCOMING' | 'TODAY' | 'PAST';
