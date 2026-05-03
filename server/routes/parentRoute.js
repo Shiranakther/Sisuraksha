@@ -40,7 +40,7 @@ router.get(
 router.post(
     '/register_child',
     authenticateToken,
-    // authorizeRole([ROLES.PARENT]), 
+    authorizeRole([ROLES.PARENT]), 
     registerChild
 );
 

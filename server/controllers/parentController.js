@@ -195,7 +195,8 @@ export const getMyChildren = async (req, res, next) => {
         });
 
     } catch (error) {
-        next(new AppError('Database error fetching children', 500));
+        console.error("GET MY CHILDREN ERROR:", error);
+        next(new AppError(`Database error fetching children: ${error.message}`, 500));
     }
 };
 
@@ -288,6 +289,27 @@ export const setAttendanceDeclaration = async (req, res, next) => {
     }
 
     const targetDate = date || new Date().toISOString().split('T')[0]; // Default to today
+
+    // ADDR Validations
+    const now = new Date();
+    // Use the server's local time (or requested timezone)
+    const currentLocalString = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    
+    if (targetDate !== currentLocalString) {
+        return next(new AppError('Attendance can only be marked for the current date.', 400));
+    }
+
+    const currentDay = now.getDay();
+    if (currentDay === 0 || currentDay === 6) {
+        return next(new AppError('Attendance submissions are blocked on weekends.', 400));
+    }
+
+    if (morningPresent !== undefined) {
+        // const currentHour = now.getHours();
+        // if (currentHour >= 12) {
+        //     return next(new AppError('Morning attendance cannot be updated after 12:00 PM.', 400));
+        // }
+    }
 
     const client = await pgPool.connect();
 
@@ -469,9 +491,9 @@ export const setAttendanceSchedule = async (req, res, next) => {
                     updated_at = NOW()
                  RETURNING *`,
                 [childId, parentId, scheduleDate, isPresent, scheduleType,
-                 pickupLat || null, pickupLon || null, pickupAddress || null,
-                 dropoffLat || null, dropoffLon || null, dropoffAddress || null,
-                 notes || null]
+                    pickupLat || null, pickupLon || null, pickupAddress || null,
+                    dropoffLat || null, dropoffLon || null, dropoffAddress || null,
+                    notes || null]
             );
             results.push(result.rows[0]);
         }
@@ -584,7 +606,7 @@ export const getAttendanceHistory = async (req, res, next) => {
                 a.last_action
             FROM public.parent_attendance_schedule pas
             JOIN public.children c ON c.id = pas.child_id
-            LEFT JOIN public.attendance a ON a.child_id = c.id AND a.date = pas.schedule_date
+            LEFT JOIN public.attendance a ON a.child_id = c.id AND a.date::date = pas.schedule_date::date
             WHERE pas.parent_id = $1
         `;
         const params = [parentId];
