@@ -69,16 +69,25 @@ export default function OptimizedRouteMapScreen() {
   // Prepare map coordinates
   const originCoord = driverLocation ? { latitude: driverLocation.coords.latitude, longitude: driverLocation.coords.longitude } : start_location;
   const destCoord = destination ? { latitude: destination.latitude, longitude: destination.longitude } : null;
-  const waypointCoords = (waypoints || []).map((wp: any) => ({
-    latitude: wp.latitude,
-    longitude: wp.longitude,
-  }));
+  const waypointCoords = (waypoints || [])
+    .map((wp: any) => ({
+      latitude: parseFloat(wp.latitude),
+      longitude: parseFloat(wp.longitude),
+    }))
+    .filter(c => !isNaN(c.latitude) && !isNaN(c.longitude));
 
-  const initialRegion = originCoord ? {
-    ...originCoord,
+  const isOriginValid = originCoord && !isNaN(originCoord.latitude) && !isNaN(originCoord.longitude);
+  const initialRegion = isOriginValid ? {
+    latitude: originCoord!.latitude,
+    longitude: originCoord!.longitude,
     latitudeDelta: 0.05,
     longitudeDelta: 0.05,
-  } : undefined;
+  } : {
+    latitude: 6.9271,
+    longitude: 79.8612,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  };
 
   return (
     <View className="flex-1 bg-slate-50" style={{ paddingTop: insets.top }}>

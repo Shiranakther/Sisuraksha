@@ -48,24 +48,32 @@ export default function RouteTodayScreen() {
               setProcessing(false);
               return;
             }
-            const loc = await Location.getCurrentPositionAsync({});
-            createTripMutation.mutate(
-              { start_lat: loc.coords.latitude, start_lon: loc.coords.longitude },
-              {
-                onSuccess: (res: any) => {
-                  setProcessing(false);
-                  router.push({
-                    pathname: '/route-map-trip',
-                    params: {
-                      tripId: res.trip_id,
-                      startLat: loc.coords.latitude.toString(),
-                      startLon: loc.coords.longitude.toString(),
-                    },
-                  } as any);
-                },
-                onError: () => setProcessing(false),
-              }
-            );
+            try {
+              const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+              if (!loc) throw new Error('Could not get location');
+              
+              createTripMutation.mutate(
+                { start_lat: loc.coords.latitude, start_lon: loc.coords.longitude },
+                {
+                  onSuccess: (res: any) => {
+                    setProcessing(false);
+                    router.push({
+                      pathname: '/route-map-trip',
+                      params: {
+                        tripId: String(res?.trip_id || res?.trip?.id || res?.id || ''),
+                        startLat: loc.coords.latitude.toString(),
+                        startLon: loc.coords.longitude.toString(),
+                      },
+                    } as any);
+                  },
+                  onError: () => setProcessing(false),
+                }
+              );
+            } catch (error) {
+              console.error('Location error:', error);
+              Alert.alert('Location Error', 'Failed to get your current location. Please check your GPS settings.');
+              setProcessing(false);
+            }
           },
         },
       ]

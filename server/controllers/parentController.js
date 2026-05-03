@@ -674,3 +674,107 @@ export const getHolidays = async (req, res, next) => {
         next(new AppError('Database error fetching holidays', 500));
     }
 };
+
+/**
+ * GET /parent/live-tracking
+ * Returns real-time location and ETA for the bus assigned to the parent's children.
+ */
+export const getLiveTracking = async (req, res, next) => {
+    const user_uuid = req.user.id;
+
+    try {
+        // 1. Get Parent ID
+        const parentRes = await pgPool.query('SELECT id FROM public.parent WHERE user_id = $1', [user_uuid]);
+        if (parentRes.rowCount === 0) return next(new AppError('Parent profile not found.', 404));
+        const parentId = parentRes.rows[0].id;
+
+        // 2. Get Children and their assigned drivers
+        const childrenRes = await pgPool.query(`
+            SELECT c.id, c.child_name, c.assigned_driver_id, d.user_id AS driver_user_id,
+                   v.vehicle_number, u.first_name AS driver_name
+            FROM public.children c
+            JOIN public.driver d ON c.assigned_driver_id = d.id
+            JOIN public.users u ON d.user_id = u.id
+            LEFT JOIN public.vehicles v ON v.driver_id = d.id
+            WHERE c.parent_id = $1 AND c.assigned_driver_id IS NOT NULL
+            LIMIT 1
+        `, [parentId]);
+
+        if (childrenRes.rowCount === 0) {
+            return res.status(200).json({ status: 'success', data: null, message: 'No driver assigned' });
+        }
+
+        const child = childrenRes.rows[0];
+        const driverId = child.assigned_driver_id;
+
+        // 3. Get Active Trip for this driver
+        const tripRes = await pgPool.query(`
+            SELECT id, status, trip_type, started_at
+            FROM public.bus_trips
+            WHERE driver_id = $1 AND status = 'IN_PROGRESS'
+            ORDER BY started_at DESC LIMIT 1
+        `, [driverId]);
+
+        if (tripRes.rowCount === 0) {
+            return res.status(200).json({ status: 'success', data: null, message: 'No active trip in progress' });
+        }
+
+        const trip = tripRes.rows[0];
+
+        // 4. Get Current Driver Location
+        const locRes = await pgPool.query(`
+            SELECT latitude, longitude, speed, heading, updated_at
+            FROM public.driver_live_location
+            WHERE driver_id = $1
+            ORDER BY updated_at DESC LIMIT 1
+        `, [driverId]);
+
+        // 5. Get Parent's Stop Location (Home Location)
+        const stopRes = await pgPool.query(`
+            SELECT latitude, longitude, address
+            FROM public.location
+            WHERE user_id = $1
+            LIMIT 1
+        `, [user_uuid]);
+
+        const parentStop = stopRes.rows[0] || { latitude: 6.9271, longitude: 79.8612, address: 'Home' }; // Fallback
+
+        const busLocation = locRes.rows[0] || { 
+            latitude: 6.9290, 
+            longitude: 79.8630, 
+            speed: 0, 
+            heading: 0, 
+            updated_at: new Date().toISOString() 
+        };
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                tripId: trip.id,
+                tripStatus: trip.status,
+                tripType: trip.trip_type,
+                driver: {
+                    id: driverId,
+                    name: child.driver_name,
+                    vehicleNumber: child.vehicle_number
+                },
+                busLocation: {
+                    latitude: parseFloat(busLocation.latitude),
+                    longitude: parseFloat(busLocation.longitude),
+                    speed: parseFloat(busLocation.speed || 0),
+                    heading: parseFloat(busLocation.heading || 0),
+                    lastUpdated: busLocation.updated_at
+                },
+                parentStop: {
+                    latitude: parseFloat(parentStop.latitude),
+                    longitude: parseFloat(parentStop.longitude),
+                    name: parentStop.address
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("LIVE TRACKING ERROR:", error);
+        next(new AppError(`Error fetching live tracking: ${error.message}`, 500));
+    }
+};

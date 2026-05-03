@@ -6,7 +6,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import "../global.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      staleTime: 30_000, // 30 seconds — avoids refetch-on-every-focus storms
+      gcTime: 5 * 60_000, // 5 minutes cache
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 const ProtectedRoute = () => {
   const { user, isLoading } = useAuth();

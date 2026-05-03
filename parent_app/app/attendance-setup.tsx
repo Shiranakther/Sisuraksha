@@ -235,33 +235,39 @@ export default function AttendanceSetupScreen() {
             const isSelected = formatDate(date) === selectedDateStr;
             const weekend = isWeekend(date);
             const holiday = isHoliday(date);
-            return (
-              <TouchableOpacity
-                key={idx}
-                onPress={() => setSelectedDate(date)}
-                className={`mx-1 w-16 py-2 rounded-xl items-center border ${
-                  isSelected ? 'bg-blue-600 border-blue-600'
-                    : weekend ? 'bg-orange-50 border-orange-200'
-                    : holiday ? 'bg-red-50 border-red-200'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
-                <Text className={`text-xs font-semibold ${
-                  isSelected ? 'text-white' : weekend ? 'text-orange-500' : holiday ? 'text-red-500' : 'text-slate-500'
-                }`}>
-                  {DAY_NAMES[date.getDay()]}
-                </Text>
-                <Text className={`text-lg font-bold mt-1 ${isSelected ? 'text-white' : 'text-slate-800'}`}>
-                  {date.getDate()}
-                </Text>
-                <Text className={`text-xs ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>
-                  {MONTH_NAMES[date.getMonth()]}
-                </Text>
-                {holiday && !isSelected && (
-                  <View className="w-1.5 h-1.5 bg-red-400 rounded-full mt-0.5" />
-                )}
-              </TouchableOpacity>
-            );
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => {
+                    if (weekend) {
+                      Alert.alert('Weekend', 'Attendance cannot be scheduled for weekends.');
+                      return;
+                    }
+                    setSelectedDate(date);
+                  }}
+                  className={`mx-1 w-16 py-2 rounded-xl items-center border ${
+                    isSelected ? 'bg-blue-600 border-blue-600'
+                      : weekend ? 'bg-slate-50 border-slate-100 opacity-40'
+                      : holiday ? 'bg-red-50 border-red-200'
+                      : 'bg-white border-slate-200'
+                  }`}
+                >
+                  <Text className={`text-xs font-semibold ${
+                    isSelected ? 'text-white' : weekend ? 'text-slate-400' : holiday ? 'text-red-500' : 'text-slate-500'
+                  }`}>
+                    {DAY_NAMES[date.getDay()]}
+                  </Text>
+                  <Text className={`text-lg font-bold mt-1 ${isSelected ? 'text-white' : weekend ? 'text-slate-300' : 'text-slate-800'}`}>
+                    {date.getDate()}
+                  </Text>
+                  <Text className={`text-xs ${isSelected ? 'text-blue-200' : 'text-slate-300'}`}>
+                    {MONTH_NAMES[date.getMonth()]}
+                  </Text>
+                  {holiday && !isSelected && (
+                    <View className="w-1.5 h-1.5 bg-red-400 rounded-full mt-0.5" />
+                  )}
+                </TouchableOpacity>
+              );
           })}
         </ScrollView>
         <View className="flex-row px-4 mt-2 gap-4">

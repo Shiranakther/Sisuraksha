@@ -63,7 +63,9 @@ const getDetectionTitle = (alertType: string): string => {
 
 export default function DriverMonitorScreen() {
   const authContext = useContext(AuthContext);
-  const driverId = '8c394627-e397-4bd5-928f-4cc66cfebac1';
+  // Use the logged-in driver's userId — fall back to empty string so
+  // API calls are simply skipped rather than fetching the wrong driver's data.
+  const driverId = authContext?.user?.userId ?? '';
 
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({ status: 'offline', enabled: true, lastHeartbeat: null });
   const [modelStatus, setModelStatus] = useState<ModelStatus>({ running: false, pid: null });
@@ -73,6 +75,7 @@ export default function DriverMonitorScreen() {
   const [isToggling, setIsToggling] = useState(false);
 
   const fetchStatus = useCallback(async () => {
+    if (!driverId) return;
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MONITOR_STATUS}?driver_id=${driverId}`);
       const data = response.data;
@@ -87,6 +90,7 @@ export default function DriverMonitorScreen() {
   }, [driverId]);
 
   const fetchModelStatus = useCallback(async () => {
+    if (!driverId) return;
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MODEL_STATUS}?driver_id=${driverId}`);
       setModelStatus(response.data);
@@ -96,6 +100,7 @@ export default function DriverMonitorScreen() {
   }, [driverId]);
 
   const fetchAlerts = useCallback(async () => {
+    if (!driverId) return;
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MONITOR_ALERTS}?driver_id=${driverId}`);
       if (response.data && Array.isArray(response.data)) {
@@ -137,6 +142,7 @@ export default function DriverMonitorScreen() {
   }, [fetchStatus, fetchModelStatus, fetchAlerts]);
 
   useEffect(() => {
+    if (!driverId) return;
     fetchStatus();
     fetchModelStatus();
     fetchAlerts();

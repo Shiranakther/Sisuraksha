@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   View, Text, TouchableOpacity, FlatList, ScrollView,
   ActivityIndicator, Alert,
@@ -8,17 +9,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import { useBoardingStatus, useMarkChildBoarded } from '../hooks/useApi';
+import FaceScannerModal from '../components/FaceScannerModal';
 
 interface RouteCoord { latitude: number; longitude: number; }
 
 const fetchOSRMRoute = async (coords: RouteCoord[]): Promise<RouteCoord[]> => {
   if (coords.length < 2) return coords;
   const coordStr = coords.map(c => `${c.longitude},${c.latitude}`).join(';');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const res = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`,
-      { signal: AbortSignal.timeout(8000) }
+      { signal: controller.signal }
     );
+    clearTimeout(timeoutId);
     if (!res.ok) return coords;
     const json = await res.json();
     if (json.code !== 'Ok' || !json.routes?.[0]) return coords;
@@ -26,8 +33,20 @@ const fetchOSRMRoute = async (coords: RouteCoord[]): Promise<RouteCoord[]> => {
       ([lon, lat]: [number, number]) => ({ latitude: lat, longitude: lon })
     );
     return geoCoords;
-  } catch {
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.warn('OSRM Fetch Error:', error);
     return coords;
+  }
+};
+
+const safeFormatTime = (dateStr: string) => {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
   }
 };
 
@@ -40,42 +59,74 @@ export default function RouteMapTripScreen() {
 
   const [routeCoords, setRouteCoords] = useState<RouteCoord[]>([]);
   const [fetchingRoute, setFetchingRoute] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
 
+  const queryClient = useQueryClient();
   const { data: boardingData, isLoading } = useBoardingStatus(tripId);
   const markBoardedMutation = useMarkChildBoarded(tripId);
 
-  const children: any[] = boardingData
-    ? [...boardingData].sort((a, b) => (a.route_order ?? 0) - (b.route_order ?? 0))
-    : [];
-  const boardedCount = children.filter(c => c.is_boarded).length;
+  const children: any[] = useMemo(() => {
+    if (!boardingData?.children) return [];
+    return [...boardingData.children].sort((a, b) => (a.route_order ?? 0) - (b.route_order ?? 0));
+  }, [boardingData?.children]);
+
+  const destination = boardingData?.destination;
+  const boardedCount = children.filter(c => c.is_boarded || c.boarded_at).length;
   const totalCount = children.length;
 
   // Build OSRM route once children load
   useEffect(() => {
     if (children.length === 0) return;
+    let isMounted = true;
+
     const waypoints: RouteCoord[] = [];
-    if (startLat && startLon) waypoints.push({ latitude: startLat, longitude: startLon });
+    if (startLat !== undefined && !isNaN(startLat) && startLon !== undefined && !isNaN(startLon)) {
+      waypoints.push({ latitude: startLat, longitude: startLon });
+    }
+
     children.forEach(c => {
-      if (c.pickup_lat && c.pickup_lon) {
-        waypoints.push({ latitude: parseFloat(c.pickup_lat), longitude: parseFloat(c.pickup_lon) });
+      const plat = parseFloat(c.pickup_lat);
+      const plon = parseFloat(c.pickup_lon);
+      if (!isNaN(plat) && !isNaN(plon)) {
+        waypoints.push({ latitude: plat, longitude: plon });
       }
     });
+
+    if (destination?.latitude && destination?.longitude) {
+      waypoints.push({ latitude: destination.latitude, longitude: destination.longitude });
+    }
+
     if (waypoints.length < 2) return;
+
     setFetchingRoute(true);
     fetchOSRMRoute(waypoints).then(coords => {
-      setRouteCoords(coords);
-      setFetchingRoute(false);
+      if (isMounted) {
+        setRouteCoords(coords);
+        setFetchingRoute(false);
+      }
     });
-  }, [boardingData?.length]);
+
+    return () => { isMounted = false; };
+  }, [children.length, startLat, startLon]);
 
   const mapRegion = (() => {
-    if (startLat && startLon) {
-      return { latitude: startLat, longitude: startLon, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+    const isLatValid = startLat !== undefined && !isNaN(startLat);
+    const isLonValid = startLon !== undefined && !isNaN(startLon);
+
+    if (isLatValid && isLonValid) {
+      return { latitude: startLat!, longitude: startLon!, latitudeDelta: 0.05, longitudeDelta: 0.05 };
     }
-    if (children[0]?.pickup_lat && children[0]?.pickup_lon) {
+
+    const firstValidChild = children.find(c => {
+      const plat = parseFloat(c.pickup_lat);
+      const plon = parseFloat(c.pickup_lon);
+      return !isNaN(plat) && !isNaN(plon);
+    });
+
+    if (firstValidChild) {
       return {
-        latitude: parseFloat(children[0].pickup_lat),
-        longitude: parseFloat(children[0].pickup_lon),
+        latitude: parseFloat(firstValidChild.pickup_lat),
+        longitude: parseFloat(firstValidChild.pickup_lon),
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       };
@@ -104,16 +155,14 @@ export default function RouteMapTripScreen() {
     <TouchableOpacity
       onPress={() => handleMarkBoarded(item)}
       activeOpacity={item.is_boarded ? 1 : 0.8}
-      className={`mx-4 mb-2 bg-white rounded-xl border shadow-sm overflow-hidden ${
-        item.is_boarded ? 'border-emerald-200' : 'border-slate-100'
-      }`}
+      className={`mx-4 mb-2 bg-white rounded-xl border shadow-sm overflow-hidden ${item.is_boarded ? 'border-emerald-200' : 'border-slate-100'
+        }`}
     >
       <View className={`absolute left-0 top-0 bottom-0 w-1 ${item.is_boarded ? 'bg-emerald-500' : 'bg-red-400'}`} />
       <View className="pl-4 pr-3 py-3 flex-row items-center">
         {/* Order badge */}
-        <View className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${
-          item.is_boarded ? 'bg-emerald-500' : 'bg-slate-200'
-        }`}>
+        <View className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${item.is_boarded ? 'bg-emerald-500' : 'bg-slate-200'
+          }`}>
           {item.is_boarded
             ? <Ionicons name="checkmark" size={16} color="white" />
             : <Text className="text-slate-700 font-bold text-sm">{item.route_order ?? index + 1}</Text>
@@ -139,7 +188,7 @@ export default function RouteMapTripScreen() {
           </View>
           {item.boarded_at && (
             <Text className="text-xs text-slate-400 mt-1">
-              {new Date(item.boarded_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              {safeFormatTime(item.boarded_at)}
             </Text>
           )}
           {!item.is_boarded && (
@@ -195,49 +244,74 @@ export default function RouteMapTripScreen() {
         </View>
       </View>
 
-      {/* Map */}
-      <View className="h-64 border-b border-slate-200">
-        <MapView style={{ flex: 1 }} initialRegion={mapRegion}>
-          <UrlTile urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maximumZ={19} flipY={false} />
-
-          {/* Driver start position */}
-          {startLat && startLon && (
-            <Marker coordinate={{ latitude: startLat, longitude: startLon }} title="Your Location">
-              <View className="bg-blue-600 w-8 h-8 rounded-full items-center justify-center border-2 border-white shadow">
-                <Ionicons name="bus" size={16} color="white" />
-              </View>
-            </Marker>
-          )}
-
-          {/* Child markers */}
-          {children.map((c) => {
-            if (!c.pickup_lat || !c.pickup_lon) return null;
-            return (
-              <Marker
-                key={c.child_id}
-                coordinate={{ latitude: parseFloat(c.pickup_lat), longitude: parseFloat(c.pickup_lon) }}
-                title={c.child_name}
-                description={c.pickup_address || ''}
-              >
-                <View className={`w-8 h-8 rounded-full items-center justify-center border-2 border-white shadow ${
-                  c.is_boarded ? 'bg-emerald-500' : 'bg-red-500'
-                }`}>
-                  <Ionicons name={c.is_boarded ? 'checkmark' : 'person'} size={14} color="white" />
+      {/* Map - Hidden when scanning to prevent hardware conflict */}
+      {!scannerVisible ? (
+        <View className="h-64 border-b border-slate-200">
+          <MapView 
+            style={{ flex: 1 }} 
+            initialRegion={mapRegion}
+            showsUserLocation
+            loadingEnabled
+          >
+            {/* Driver start position */}
+            {startLat !== undefined && !isNaN(startLat) && startLon !== undefined && !isNaN(startLon) && (
+              <Marker coordinate={{ latitude: startLat, longitude: startLon }} title="Your Location">
+                <View className="bg-blue-600 w-8 h-8 rounded-full items-center justify-center border-2 border-white shadow">
+                  <Ionicons name="bus" size={16} color="white" />
                 </View>
               </Marker>
-            );
-          })}
+            )}
 
-          {/* OSRM route polyline */}
-          {routeCoords.length > 1 && (
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor="#10B981"
-              strokeWidth={4}
-            />
-          )}
-        </MapView>
-      </View>
+            {/* Child markers */}
+            {children.map((c) => {
+              const lat = parseFloat(c.pickup_lat);
+              const lon = parseFloat(c.pickup_lon);
+              if (isNaN(lat) || isNaN(lon)) return null;
+              
+              return (
+                <Marker
+                  key={c.child_id}
+                  coordinate={{ latitude: lat, longitude: lon }}
+                  title={c.child_name}
+                  description={c.pickup_address || ''}
+                >
+                  <View className={`w-8 h-8 rounded-full items-center justify-center border-2 border-white shadow ${
+                    c.is_boarded ? 'bg-emerald-500' : 'bg-red-500'
+                  }`}>
+                    <Ionicons name={c.is_boarded ? 'checkmark' : 'person'} size={14} color="white" />
+                  </View>
+                </Marker>
+              );
+            })}
+            
+            {/* Destination Marker */}
+            {destination?.latitude && destination?.longitude && (
+              <Marker 
+                coordinate={{ latitude: destination.latitude, longitude: destination.longitude }} 
+                title={destination.name || "School"}
+              >
+                <View className="bg-emerald-600 p-2 rounded-full border-2 border-white shadow">
+                  <Ionicons name="school" size={16} color="white" />
+                </View>
+              </Marker>
+            )}
+
+            {/* OSRM route polyline */}
+            {routeCoords.length > 1 && (
+              <Polyline
+                coordinates={routeCoords}
+                strokeColor="#10B981"
+                strokeWidth={4}
+              />
+            )}
+          </MapView>
+        </View>
+      ) : (
+        <View className="h-64 items-center justify-center bg-slate-900">
+          <ActivityIndicator size="large" color="#3B82F6" />
+          <Text className="text-white mt-2">Camera Active...</Text>
+        </View>
+      )}
 
       {/* Children list */}
       <View className="flex-row items-center px-4 py-3 bg-white border-b border-slate-200">
@@ -247,7 +321,7 @@ export default function RouteMapTripScreen() {
 
       <FlatList
         data={children}
-        keyExtractor={(item) => item.child_id}
+        keyExtractor={(item) => String(item.child_id)}
         renderItem={renderChildRow}
         contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
@@ -257,6 +331,13 @@ export default function RouteMapTripScreen() {
             <Text className="text-slate-400 mt-2">No children in this trip</Text>
           </View>
         }
+      />
+      <FaceScannerModal 
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['boarding-status', tripId] });
+        }}
       />
     </View>
   );

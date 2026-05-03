@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerParentProfile, registerChild, getSchoolsForDropdown, getMyChildren, getParentAttendance, setAttendanceDeclaration, getAttendanceDeclaration, setAttendanceSchedule, getAttendanceSchedule, getAttendanceHistory, getHolidays } from '../controllers/parentController.js';
+import { registerParentProfile, registerChild, getSchoolsForDropdown, getMyChildren, getParentAttendance, setAttendanceDeclaration, getAttendanceDeclaration, setAttendanceSchedule, getAttendanceSchedule, getAttendanceHistory, getHolidays, getLiveTracking } from '../controllers/parentController.js';
 
 const router = express.Router();
 
@@ -107,6 +107,13 @@ router.get(
     '/holidays',
     authenticateToken,
     getHolidays
+);
+
+router.get(
+    '/live-tracking',
+    authenticateToken,
+    authorizeRole([ROLES.PARENT]),
+    getLiveTracking
 );
 
 export default router;

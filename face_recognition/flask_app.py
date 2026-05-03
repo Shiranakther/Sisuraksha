@@ -13,6 +13,16 @@ import time
 import base64
 import io
 
+# ─── TensorFlow 2.16+ Compatibility Fix ──────────────────────────────────────
+# mtcnn expects tf.keras which is moved/changed in TF 2.16+
+os.environ['TF_USE_LEGACY_KERAS'] = '1'
+import tensorflow as tf
+try:
+    import keras
+except ImportError:
+    pass 
+# ─────────────────────────────────────────────────────────────────────────────
+
 import cv2
 import numpy as np
 from flask import Flask, request, jsonify

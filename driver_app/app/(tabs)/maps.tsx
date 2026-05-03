@@ -9,6 +9,13 @@ import apiClient from '../../api/axios';
 
 const STOP_COLORS = ['#2563EB', '#7C3AED', '#059669', '#D97706', '#DC2626', '#0891B2', '#4F46E5', '#B91C1C'];
 
+// Safe ref updater — holds latest value without triggering re-renders
+function useLatestRef<T>(value: T) {
+  const ref = useRef<T>(value);
+  useEffect(() => { ref.current = value; });
+  return ref;
+}
+
 // Distance helper
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -61,30 +68,44 @@ export default function MapsScreen() {
     orderedChildren.filter((c: any) => !(c.boarded_at || c.is_boarded)).length,
     [orderedChildren]);
 
+  // Stable refs for values used inside location subscription (avoid stale closures)
+  const isFollowingRef = useLatestRef(isFollowing);
+  const orderedChildrenRef = useLatestRef(orderedChildren);
+  const notifiedChildrenRef = useLatestRef(notifiedChildren);
+  const lastRouteUpdateRef = useLatestRef(lastRouteUpdateLocation);
+  const isEveningRef = useLatestRef(isEvening);
+  const activeTripRef = useLatestRef(activeTrip);
+
   // 3. Optimized OSRM Road Routing
-  const fetchRoadRoute = useCallback(async (busLat: number, busLon: number) => {
-    if (orderedChildren.length === 0) return;
+  const fetchRoadRoute = useCallback(async (busLat: number, busLon: number, signal?: AbortSignal) => {
+    const children = orderedChildrenRef.current;
+    const evening = isEveningRef.current;
+    if (children.length === 0) return;
 
     let points = [{ latitude: busLat, longitude: busLon }];
 
-    const unboardedPoints = orderedChildren.filter((c: any) => !(c.boarded_at || c.is_boarded)).map((c: any) => {
-      const lat = isEvening ? parseFloat(c.dropoff_lat) : parseFloat(c.pickup_lat);
-      const lon = isEvening ? parseFloat(c.dropoff_lon) : parseFloat(c.pickup_lon);
-      return { latitude: lat, longitude: lon };
-    }).filter((p: any) => !isNaN(p.latitude) && !isNaN(p.longitude));
+    const unboardedPoints = children
+      .filter((c: any) => !(c.boarded_at || c.is_boarded))
+      .map((c: any) => {
+        const lat = evening ? parseFloat(c.dropoff_lat) : parseFloat(c.pickup_lat);
+        const lon = evening ? parseFloat(c.dropoff_lon) : parseFloat(c.pickup_lon);
+        return { latitude: lat, longitude: lon };
+      })
+      .filter((p: any) => !isNaN(p.latitude) && !isNaN(p.longitude));
 
-    if (isEvening) {
-      // Evening: Bus -> Schools -> Homes (Drop-offs)
+    if (evening) {
       points = [...points, ...uniqueSchools, ...unboardedPoints];
     } else {
-      // Morning: Bus -> Homes (Pick-ups) -> Schools
       points = [...points, ...unboardedPoints, ...uniqueSchools];
     }
+
+    if (points.length < 2) return;
 
     try {
       const coordsString = points.map(p => `${p.longitude},${p.latitude}`).join(';');
       const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
-      const res = await fetch(url);
+      const res = await fetch(url, signal ? { signal } : undefined);
+      if (!res.ok) return;
       const json = await res.json();
 
       if (json.code === 'Ok' && json.routes?.[0]) {
@@ -95,27 +116,38 @@ export default function MapsScreen() {
         setOsrmRoute(route);
         setLastRouteUpdateLocation({ lat: busLat, lon: busLon });
       }
-    } catch (err) {
-      console.error("OSRM Fetch Failed", err);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.warn('OSRM Fetch Failed:', err?.message ?? err);
+      }
     }
-  }, [orderedChildren, destination, isEvening]);
+  }, [uniqueSchools]);
 
-  // Route Load & Refresh
+  // Route Load & Refresh — re-fetch when pending count changes or on first location fix
   useEffect(() => {
-    if (currentLocation) {
-      fetchRoadRoute(currentLocation.coords.latitude, currentLocation.coords.longitude);
-    }
-  }, [pendingChildrenCount, fetchRoadRoute]);
+    if (!currentLocation) return;
+    const controller = new AbortController();
+    fetchRoadRoute(
+      currentLocation.coords.latitude,
+      currentLocation.coords.longitude,
+      controller.signal
+    );
+    return () => controller.abort();
+  }, [pendingChildrenCount, fetchRoadRoute, currentLocation?.coords.latitude, currentLocation?.coords.longitude]);
 
-  // 4. Optimized Location Tracking
+  // 4. Optimized Location Tracking — uses stable refs to avoid stale closures
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null;
+    let mounted = true;
+
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+      if (status !== 'granted' || !mounted) return;
+
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 10 },
         (location) => {
+          if (!mounted) return;
           setCurrentLocation(location);
           setSpeed((location.coords.speed ?? 0) * 3.6);
           setHeading(location.coords.heading ?? 0);
@@ -123,40 +155,62 @@ export default function MapsScreen() {
           const busLat = location.coords.latitude;
           const busLon = location.coords.longitude;
 
-          // Only update route if we moved > 500m
-          if (lastRouteUpdateLocation) {
-            const distMoved = getDistance(busLat, busLon, lastRouteUpdateLocation.lat, lastRouteUpdateLocation.lon);
+          // Only update route if we moved > 500m — read from ref to avoid stale closure
+          const lastUpdate = lastRouteUpdateRef.current;
+          if (lastUpdate) {
+            const distMoved = getDistance(busLat, busLon, lastUpdate.lat, lastUpdate.lon);
             if (distMoved > 500) fetchRoadRoute(busLat, busLon);
           }
 
-          // Proximity Alerts
-          orderedChildren.forEach(async (child: any) => {
-            if (notifiedChildren.has(child.child_id) || child.is_boarded) return;
-            const stopLat = parseFloat(isEvening ? child.dropoff_lat : child.pickup_lat);
-            const stopLon = parseFloat(isEvening ? child.dropoff_lon : child.pickup_lon);
-            if (isNaN(stopLat) || isNaN(stopLon)) return;
+          // Proximity Alerts — use for...of to correctly handle async/await
+          const children = orderedChildrenRef.current;
+          const notified = notifiedChildrenRef.current;
+          const evening = isEveningRef.current;
+          const trip = activeTripRef.current;
 
-            if (getDistance(busLat, busLon, stopLat, stopLon) <= 1000) {
-              setNotifiedChildren(prev => new Set(prev).add(child.child_id));
-              try {
-                await apiClient.post(`/driver/trip/notify-proximity/${child.child_id}`, { tripId: activeTrip?.id, distance: 1000 });
-              } catch { }
+          (async () => {
+            for (const child of children) {
+              if (notified.has(child.child_id) || child.is_boarded) continue;
+              const stopLat = parseFloat(evening ? child.dropoff_lat : child.pickup_lat);
+              const stopLon = parseFloat(evening ? child.dropoff_lon : child.pickup_lon);
+              if (isNaN(stopLat) || isNaN(stopLon)) continue;
+
+              if (getDistance(busLat, busLon, stopLat, stopLon) <= 1000) {
+                setNotifiedChildren(prev => new Set(prev).add(child.child_id));
+                try {
+                  await apiClient.post(
+                    `/driver/trip/notify-proximity/${child.child_id}`,
+                    { tripId: trip?.id, distance: 1000 }
+                  );
+                } catch {
+                  // Notification failure is non-critical; ignore silently
+                }
+              }
             }
-          });
+          })();
 
-          if (isFollowing && mapRef.current) {
-            mapRef.current.animateCamera({
-              center: { latitude: busLat, longitude: busLon },
-              heading: location.coords.heading ?? 0,
-              pitch: 45,
-              zoom: 17
-            }, { duration: 1000 });
+          // Map follow — guard against null mapRef
+          if (isFollowingRef.current && mapRef.current) {
+            try {
+              mapRef.current.animateCamera({
+                center: { latitude: busLat, longitude: busLon },
+                heading: location.coords.heading ?? 0,
+                pitch: 45,
+                zoom: 17
+              }, { duration: 1000 });
+            } catch {
+              // Camera animation can fail if map is not fully mounted
+            }
           }
         }
       );
     })();
-    return () => subscription?.remove();
-  }, [isFollowing, activeTrip?.id, orderedChildren, lastRouteUpdateLocation]);
+
+    return () => {
+      mounted = false;
+      subscription?.remove();
+    };
+  }, []); // Empty deps — all mutable values read from stable refs
 
   // 5. Memoized Markers
   const markers = useMemo(() => {

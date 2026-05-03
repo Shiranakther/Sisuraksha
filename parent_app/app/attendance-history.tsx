@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, FlatList, ActivityIndicator,
+  View, Text, TouchableOpacity, FlatList, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,7 +59,7 @@ export default function AttendanceHistoryScreen() {
     return { PAST: past.reverse(), TODAY: todayItems, UPCOMING: upcoming };
   }, [records, today]);
 
-  const activeItems = grouped[activeTab];
+
 
   const tabs: { key: TabFilter; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: 'UPCOMING', label: 'Upcoming', icon: 'arrow-forward-circle' },
@@ -178,6 +178,28 @@ export default function AttendanceHistoryScreen() {
     );
   };
 
+  const dateRange = useMemo(() => {
+    const dates: Date[] = [];
+    const start = new Date();
+    start.setDate(start.getDate() - 7); // Show 7 days past
+    for (let i = 0; i <= 21; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      dates.push(d);
+    }
+    return dates;
+  }, []);
+
+  const [selectedDate, setSelectedDate] = useState<string>(today);
+
+  const activeItems = useMemo(() => {
+    let items = grouped[activeTab];
+    if (selectedDate) {
+      items = items.filter(r => r.schedule_date?.split('T')[0] === selectedDate);
+    }
+    return items;
+  }, [grouped, activeTab, selectedDate]);
+
   return (
     <View className="flex-1 bg-slate-50" style={{ paddingTop: insets.top }}>
 
@@ -192,26 +214,57 @@ export default function AttendanceHistoryScreen() {
         </View>
       </View>
 
-      {/* Child filter */}
-      <View className="bg-white border-b border-slate-200">
-        <View style={{ flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, flexWrap: 'wrap', gap: 6 }}>
+      {/* Date Strip */}
+      <View className="bg-white border-b border-slate-100 pb-3 pt-2">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="px-3">
+          {dateRange.map((date, idx) => {
+            const dStr = fmt(date);
+            const isSelected = dStr === selectedDate;
+            const isToday = dStr === today;
+            return (
+              <TouchableOpacity
+                key={idx}
+                onPress={() => setSelectedDate(dStr)}
+                className={`mx-1 w-12 py-2 rounded-2xl items-center ${
+                  isSelected ? 'bg-blue-600' : 'bg-transparent'
+                }`}
+              >
+                <Text className={`text-[10px] font-semibold ${isSelected ? 'text-white' : 'text-slate-400'}`}>
+                  {DAYS[date.getDay()].substring(0, 3)}
+                </Text>
+                <Text className={`text-base font-bold mt-0.5 ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                  {date.getDate()}
+                </Text>
+                {isToday && !isSelected && (
+                  <View className="w-1 h-1 bg-blue-600 rounded-full mt-0.5" />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Child filter - 2-Column Grid */}
+      <View className="bg-white border-b border-slate-100 px-3 py-3">
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <TouchableOpacity
             onPress={() => setSelectedChild(undefined)}
-            style={{ height: 30, justifyContent: 'center' }}
-            className={`px-3 rounded-lg border flex-row items-center ${!selectedChild ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-200'}`}
+            style={{ width: '48%', height: 40, borderRadius: 12 }}
+            className={`flex-row items-center px-3 border ${!selectedChild ? 'bg-blue-600 border-blue-600 shadow-sm' : 'bg-slate-50 border-slate-200'}`}
           >
-            <Ionicons name="people" size={13} color={!selectedChild ? 'white' : '#64748B'} style={{ marginRight: 4 }} />
-            <Text className={`text-xs font-semibold ${!selectedChild ? 'text-white' : 'text-slate-600'}`}>All</Text>
+            <Ionicons name="people" size={16} color={!selectedChild ? 'white' : '#64748B'} style={{ marginRight: 8 }} />
+            <Text className={`text-xs font-bold ${!selectedChild ? 'text-white' : 'text-slate-600'}`}>All Children</Text>
           </TouchableOpacity>
+          
           {!loadingChildren && ((children as any[]) || []).map((child: any) => (
             <TouchableOpacity
               key={child.id}
               onPress={() => setSelectedChild(child.id)}
-              style={{ height: 30, justifyContent: 'center' }}
-              className={`px-3 rounded-lg border flex-row items-center ${selectedChild === child.id ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-200'}`}
+              style={{ width: '48%', height: 40, borderRadius: 12 }}
+              className={`flex-row items-center px-3 border ${selectedChild === child.id ? 'bg-blue-600 border-blue-600 shadow-sm' : 'bg-slate-50 border-slate-200'}`}
             >
-              <Ionicons name="person" size={12} color={selectedChild === child.id ? 'white' : '#64748B'} style={{ marginRight: 4 }} />
-              <Text className={`text-xs font-semibold ${selectedChild === child.id ? 'text-white' : 'text-slate-600'}`}>
+              <Ionicons name="person" size={14} color={selectedChild === child.id ? 'white' : '#64748B'} style={{ marginRight: 8 }} />
+              <Text className={`text-xs font-bold ${selectedChild === child.id ? 'text-white' : 'text-slate-600'}`} numberOfLines={1}>
                 {child.child_name}
               </Text>
             </TouchableOpacity>

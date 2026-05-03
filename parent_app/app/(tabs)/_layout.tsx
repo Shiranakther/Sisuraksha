@@ -49,13 +49,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <Ionicons name="people" size={24} color={color} /> 
         }} 
       />
-      <Tabs.Screen 
-        name="attendance" 
-        options={{ 
-          title: 'Attendance', 
-          tabBarIcon: ({ color }) => <Ionicons name="calendar" size={24} color={color} /> 
-        }} 
-      />
+      <Tabs.Screen name="attendance" options={{ href: null }} />
       <Tabs.Screen 
         name="tracking" 
         options={{ 

@@ -399,7 +399,7 @@ export const createTrip = async (req, res, next) => {
                      ELSE COALESCE(ad.morning_present, pas.is_present, true)
                    END = true
                AND COALESCE(pas.pickup_lat, c.home_lat, l.latitude) IS NOT NULL`,
-            [driverId, today]
+            [driverId, today, (trip_type || 'morning').toLowerCase()]
         );
 
         // Greedy nearest-neighbor ordering (Haversine)

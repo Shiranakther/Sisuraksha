@@ -478,7 +478,7 @@ export default function DriverAttendanceScreen() {
             </>
           }
           data={loadingLogs ? [] : displayedLogs}
-          keyExtractor={(item) => item.attendance_id || Math.random().toString()}
+          keyExtractor={(item, index) => item.attendance_id ?? `attendance-row-${index}`}
           renderItem={renderLogItem}
           refreshing={loadingLogs}
           onRefresh={handleRefresh}

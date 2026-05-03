@@ -6,6 +6,10 @@ const REFRESH_TOKEN_KEY = 'auth_refresh_token';
 
 export const tokenService = {
   setAccessToken: async (token: string) => {
+    if (!token || typeof token !== 'string') {
+      console.warn('[Storage] Invalid access token');
+      return;
+    }
     if (Platform.OS === 'web') {
       localStorage.setItem(ACCESS_TOKEN_KEY, token);
     } else {
@@ -19,6 +23,10 @@ export const tokenService = {
     return await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
   },
   setRefreshToken: async (token: string) => {
+    if (!token || typeof token !== 'string') {
+      console.warn('[Storage] Invalid refresh token');
+      return;
+    }
     if (Platform.OS === 'web') {
       localStorage.setItem(REFRESH_TOKEN_KEY, token);
     } else {
