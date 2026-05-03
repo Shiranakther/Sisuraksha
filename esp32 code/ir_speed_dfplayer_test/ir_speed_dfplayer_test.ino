@@ -21,9 +21,10 @@ const char* WIFI_SSID     = "SLT_FIBER_PYt5z";
 const char* WIFI_PASSWORD = "07726Padumapks";
 
 // Change only this laptop/server IP when your hotspot changes.
-const char* SISURAKSHA_SERVER_HOST = "10.33.31.198";
+const char* SISURAKSHA_SERVER_HOST = " 192.168.1.17";
 const uint16_t NODE_SERVER_PORT = 5000;
 const uint16_t PYTHON_WEBHOOK_PORT = 5001;
+const char* DOOR_ESP32_URL = "http://192.168.1.83";
 
 // -- IR Sensor Pins ----------------------------
 #define IR_STEP1  27
@@ -59,6 +60,7 @@ const unsigned long MEASURE_INTERVAL_MS = 500;
 const unsigned long BROADCAST_INTERVAL_MS = 100;
 const unsigned long LIVE_POST_INTERVAL_MS = 200;
 const unsigned long SPEED_POST_INTERVAL_MS = 500;
+const unsigned long DOOR_SPEED_POST_INTERVAL_MS = 200;
 // Reject duplicate edges from LM393 chatter/noise.
 // 25000 us = max 40 valid pulses/sec before calibration.
 const unsigned long MIN_PULSE_GAP_US = 25000;
@@ -99,7 +101,9 @@ bool currentMoving = false;
 unsigned long lastMeasureTimeMs = 0;
 unsigned long lastLivePostTimeMs = 0;
 unsigned long lastSpeedPostTimeMs = 0;
+unsigned long lastDoorSpeedPostTimeMs = 0;
 bool lastPostedMoving = false;
+bool lastDoorPostedMoving = false;
 
 // ==============================================
 // HTML Dashboard
@@ -483,7 +487,7 @@ String buildUrl(uint16_t port, const char* path) {
   return url;
 }
 
-void postJSON(const String& url, const String& body, const char* label) {
+void postJSON(const String& url, const String& body, const char* label, uint16_t timeoutMs = 500) {
   if (WiFi.status() != WL_CONNECTED) {
     return;
   }
@@ -491,7 +495,7 @@ void postJSON(const String& url, const String& body, const char* label) {
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(500);
+  http.setTimeout(timeoutMs);
 
   int code = http.POST(body);
   if (code == 200) {
@@ -511,6 +515,12 @@ void postIRState() {
 void postSpeedState() {
   String body = buildSpeedJSON();
   postJSON(buildUrl(PYTHON_WEBHOOK_PORT, "/speed-webhook"), body, "Speed");
+}
+
+void postDoorSpeedState() {
+  String body = buildSpeedJSON();
+  String url = String(DOOR_ESP32_URL) + "/speed";
+  postJSON(url, body, "DoorSpeed", 200);
 }
 
 void postLiveState() {
@@ -554,6 +564,8 @@ void webhookTask(void* param) {
     bool dueForLivePost = nowMs - lastLivePostTimeMs >= LIVE_POST_INTERVAL_MS;
     bool movingChanged = currentMoving != lastPostedMoving;
     bool dueForSpeedPost = nowMs - lastSpeedPostTimeMs >= SPEED_POST_INTERVAL_MS;
+    bool doorMovingChanged = currentMoving != lastDoorPostedMoving;
+    bool dueForDoorSpeedPost = nowMs - lastDoorSpeedPostTimeMs >= DOOR_SPEED_POST_INTERVAL_MS;
 
     if (dueForLivePost) {
       postLiveState();
@@ -564,6 +576,12 @@ void webhookTask(void* param) {
       postSpeedState();
       lastPostedMoving = currentMoving;
       lastSpeedPostTimeMs = nowMs;
+    }
+
+    if (doorMovingChanged || dueForDoorSpeedPost) {
+      postDoorSpeedState();
+      lastDoorPostedMoving = currentMoving;
+      lastDoorSpeedPostTimeMs = nowMs;
     }
 
     vTaskDelay(pdMS_TO_TICKS(BROADCAST_INTERVAL_MS));

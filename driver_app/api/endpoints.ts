@@ -55,7 +55,10 @@ export const API_ENDPOINTS = {
   // Accident Detection
   ACCIDENT_ACTIVE: '/accident/active',
   ACCIDENT_HISTORY: '/accident/history',
+  ACCIDENT_LIVE_STATE: '/accident/live-state',
+  ACCIDENT_CANCEL_ACTIVE: '/accident/cancel-active',
   DOOR_STATUS: '/accident/door-status',
+  DOOR_RESET: '/accident/door-reset',
 
   // Trip / Route Management
   TRIP_REQUESTS: '/driver/trip/requests',
