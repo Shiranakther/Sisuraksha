@@ -65,23 +65,28 @@ function invalidateCache() {
 
 // ─── Flask Service Management ───────────────────────────────────────────────
 
-// POST /api/face/service/start
-export const startFlaskService = (req, res) => {
+// Internal function for service start
+export const initFlaskService = async () => {
   if (flaskProcess && !flaskProcess.killed) {
-    return res.json({
-      success: true,
-      running: true,
-      message: 'Face recognition service is already running',
-      pid: flaskProcess.pid
-    });
+    return { success: true, running: true, message: 'Service already running' };
   }
 
-  try {
-    console.log('🧠 Starting face recognition Flask service...');
-    console.log(`📁 Python: ${FLASK_CONFIG.pythonPath}`);
-    console.log(`📁 Script: ${FLASK_CONFIG.scriptPath}`);
+  // Wait 10 seconds before starting to allow the main server to stabilize
+  console.log('⏳ Waiting 10s before auto-starting Face Recognition service...');
+  await new Promise(resolve => setTimeout(resolve, 10000));
 
-    flaskProcess = spawn(FLASK_CONFIG.pythonPath, [FLASK_CONFIG.scriptPath], {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('🧠 Starting face recognition Flask service...');
+      
+      const venvPath = FLASK_CONFIG.pythonPath;
+      const pythonExe = fs.existsSync(venvPath) ? venvPath : 'python';
+      
+      if (pythonExe === 'python') {
+        console.warn('⚠️ Warning: venv not found. Running with system python. This may fail if requirements.txt isn\'t installed globally.');
+      }
+
+    flaskProcess = spawn(pythonExe, [FLASK_CONFIG.scriptPath], {
       cwd: FLASK_CONFIG.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false
@@ -103,16 +108,24 @@ export const startFlaskService = (req, res) => {
     flaskProcess.on('error', (err) => {
       console.error('[FaceRecognition] Failed to start:', err);
       flaskProcess = null;
+      reject(err);
     });
 
-    res.json({
-      success: true,
-      running: true,
-      message: 'Face recognition service started',
-      pid: flaskProcess.pid
-    });
+    resolve({ success: true, running: true, message: 'Face recognition service started', pid: flaskProcess.pid });
+    } catch (error) {
+      console.error('Failed to start face recognition service:', error);
+      reject(error);
+    }
+  });
+};
+
+// POST /api/face/service/start
+// POST /api/face/service/start
+export const startFlaskService = async (req, res) => {
+  try {
+    const result = await initFlaskService();
+    res.json(result);
   } catch (error) {
-    console.error('Failed to start face recognition service:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to start service',
@@ -306,9 +319,9 @@ export const registerFace = async (req, res, next) => {
  *   All filled              → Day complete, no write
  */
 async function recordAttendance(childId, latitude, longitude) {
-  const today   = new Date().toISOString().split('T')[0];   // YYYY-MM-DD
+  const today = new Date().toISOString().split('T')[0];   // YYYY-MM-DD
   const nowTime = new Date().toTimeString().split(' ')[0];  // HH:MM:SS
-  const lat = latitude  ?? null;
+  const lat = latitude ?? null;
   const lon = longitude ?? null;
 
   try {
@@ -344,11 +357,11 @@ async function recordAttendance(childId, latitude, longitude) {
     let timeField, latField, lonField, action, message;
 
     if (!att.morning_drop_time) {
-      timeField = 'morning_drop_time';   latField = 'morning_drop_lat';   lonField = 'morning_drop_lon';   action = 'MORNING_DROP';   message = 'Arrived at school';
+      timeField = 'morning_drop_time'; latField = 'morning_drop_lat'; lonField = 'morning_drop_lon'; action = 'MORNING_DROP'; message = 'Arrived at school';
     } else if (!att.evening_pickup_time) {
       timeField = 'evening_pickup_time'; latField = 'evening_pickup_lat'; lonField = 'evening_pickup_lon'; action = 'EVENING_PICKUP'; message = 'Evening pickup recorded';
     } else if (!att.evening_drop_time) {
-      timeField = 'evening_drop_time';   latField = 'evening_drop_lat';   lonField = 'evening_drop_lon';   action = 'EVENING_DROP';   message = 'Dropped home';
+      timeField = 'evening_drop_time'; latField = 'evening_drop_lat'; lonField = 'evening_drop_lon'; action = 'EVENING_DROP'; message = 'Dropped home';
     } else {
       return { action: 'COMPLETE', message: 'Attendance already complete for today' };
     }

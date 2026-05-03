@@ -10,6 +10,16 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
 }
 
 
+let isRefreshing = false;
+let failedQueue: any[] = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) prom.reject(error);
+    else prom.resolve(token);
+  });
+  failedQueue = [];
+};
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -30,39 +40,58 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as CustomAxiosRequestConfig;
 
-    // Don't retry if:
-    // 1. Already retried
-    // 2. No original request
-    // 3. Not a 401 error
-    // 4. It's the refresh endpoint itself (prevents infinite loop)
-    const isRefreshEndpoint = originalRequest?.url?.includes('/auth/refresh');
+    const isRefreshEndpoint = originalRequest?.url?.includes(API_ENDPOINTS.REFRESH);
 
     if (
-      originalRequest &&
       error.response?.status === 401 &&
       !originalRequest._retry &&
       !isRefreshEndpoint
     ) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return apiClient(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
+
       try {
-        const response = await axios.post<{ token: string }>(
+        const currentRefreshToken = await tokenService.getRefreshToken();
+        
+        if (!currentRefreshToken) {
+          throw new Error('No refresh token stored');
+        }
+
+        const response = await axios.post<{ token: string; refreshToken: string }>(
           `${API_BASE_URL}${API_ENDPOINTS.REFRESH}`,
-          {},
+          { refreshToken: currentRefreshToken },
           { withCredentials: true }
         );
 
         const newToken = response.data.token;
+        const newRefreshToken = response.data.refreshToken;
+
         await tokenService.setAccessToken(newToken);
+        if (newRefreshToken) await tokenService.setRefreshToken(newRefreshToken);
 
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
 
+        processQueue(null, newToken);
         return apiClient(originalRequest);
       } catch (refreshError) {
-        // Refresh failed - clear token and redirect to login
+        processQueue(refreshError, null);
         await tokenService.clearToken();
         router.replace('/');
         return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
     return Promise.reject(error);

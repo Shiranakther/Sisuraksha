@@ -15,7 +15,7 @@ export const useLogin = () => {
       return data;
     },
     onSuccess: (data) => {
-      signIn(data.token, data.data);
+      signIn(data.token, data.refreshToken, data.data);
       router.replace('/(tabs)/home');
     },
     onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Login failed')
@@ -494,6 +494,18 @@ export const useAccidentHistory = (limit = 20) => {
       return data.data;
     },
     refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+};
+
+export const useLiveTracking = () => {
+  return useQuery({
+    queryKey: ['liveTracking'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.LIVE_TRACKING);
+      return data.data;
+    },
+    refetchInterval: 5000, // Update every 5 seconds
     refetchOnWindowFocus: true,
   });
 };

@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, ActivityIndicator,
   Alert, Switch, RefreshControl, TextInput
@@ -97,7 +97,7 @@ function HomeView({ onNavigate }: { onNavigate: (m: ScreenMode) => void }) {
 // ══════════════════════════════════════════════════════
 // SCHEDULE VIEW — child selector + weekly calendar + route type
 // ══════════════════════════════════════════════════════
-type ScheduleType = 'BOTH' | 'MORNING' | 'EVENING';
+type ScheduleType = 'BOTH' | 'MORNING' | 'AFTERNOON';
 interface DayEntry { isPresent: boolean; type: ScheduleType }
 
 function ScheduleView({ onBack }: { onBack: () => void }) {
@@ -169,7 +169,7 @@ function ScheduleView({ onBack }: { onBack: () => void }) {
       .filter(d => {
         const day = d.getDay();
         const ds = fmt(d);
-        return day !== 0 && day !== 6 && !holidayMap.has(ds);
+        return day !== 0 /* && day !== 6 */ && !holidayMap.has(ds); // Commented out Saturday restriction for testing
       })
       .map(d => {
         const ds = fmt(d);
@@ -291,7 +291,7 @@ function ScheduleView({ onBack }: { onBack: () => void }) {
         <View className="px-5">
           {weekDates.map((d) => {
             const dateStr = fmt(d);
-            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+            const isWeekend = d.getDay() === 0; /* || d.getDay() === 6; */ // Commented out Saturday restriction for testing
             const holidayName = holidayMap.get(dateStr);
             const isHoliday = !!holidayName;
             const isToday = dateStr === today;
@@ -339,19 +339,22 @@ function ScheduleView({ onBack }: { onBack: () => void }) {
                     )}
                   </View>
 
-                  {!isDisabled && (
-                    <View className="items-center">
+                  <View>
+                    <View className={`items-center ${isDisabled ? 'opacity-50' : ''}`}>
                       <Switch
-                        value={isPresent}
-                        onValueChange={() => toggleDay(dateStr)}
+                        value={isDisabled ? false : isPresent}
+                        onValueChange={() => {
+                          if (!isDisabled) toggleDay(dateStr);
+                        }}
+                        disabled={isDisabled}
                         trackColor={{ false: '#FCA5A5', true: '#86EFAC' }}
-                        thumbColor={isPresent ? '#16A34A' : '#EF4444'}
+                        thumbColor={isDisabled ? '#CBD5E1' : (isPresent ? '#16A34A' : '#EF4444')}
                       />
-                      <Text className={`text-xs font-bold mt-0.5 ${isPresent ? 'text-green-600' : 'text-red-500'}`}>
-                        {isPresent ? 'Present' : 'Absent'}
+                      <Text className={`text-xs font-bold mt-0.5 ${isDisabled ? 'text-slate-400' : (isPresent ? 'text-green-600' : 'text-red-500')}`}>
+                        {isDisabled ? 'No School' : (isPresent ? 'Present' : 'Absent')}
                       </Text>
                     </View>
-                  )}
+                  </View>
                 </View>
 
                 {/* Route Type Selector — only for present, non-disabled days */}
@@ -361,7 +364,7 @@ function ScheduleView({ onBack }: { onBack: () => void }) {
                     <View className="flex-row gap-2">
                       {([
                         { key: 'MORNING' as ScheduleType, label: '🌅 Morning', color: 'amber' },
-                        { key: 'EVENING' as ScheduleType, label: '🌇 Evening', color: 'purple' },
+                        { key: 'AFTERNOON' as ScheduleType, label: '🌇 Afternoon', color: 'purple' },
                         { key: 'BOTH' as ScheduleType, label: '☀️ Both', color: 'blue' },
                       ]).map(opt => {
                         const active = routeType === opt.key;
@@ -435,7 +438,9 @@ function HistoryView({ onBack }: { onBack: () => void }) {
   const { data: holidays } = useGetHolidays();
   const [selectedChild, setSelectedChild] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<HistoryTab>('TODAY');
-  const activeChildId = selectedChild || ((children as any[])?.[0]?.id ?? null);
+  
+  // If selectedChild is explicitly null, we pass undefined to useGetAttendanceHistory so it fetches ALL
+  const activeChildId = selectedChild === null ? undefined : selectedChild;
 
   const { data: history, isLoading, refetch } = useGetAttendanceHistory(activeChildId);
 
@@ -517,12 +522,12 @@ function HistoryView({ onBack }: { onBack: () => void }) {
             key={child.id}
             onPress={() => setSelectedChild(child.id)}
             className={`mr-3 px-5 py-2.5 rounded-2xl border flex-row items-center ${
-              activeChildId === child.id && selectedChild
+              selectedChild === child.id
                 ? 'bg-blue-600 border-blue-600'
                 : 'bg-white border-slate-200'
             }`}
           >
-            <Text className={activeChildId === child.id && selectedChild ? 'text-white font-bold' : 'text-slate-700 font-medium'}>
+            <Text className={selectedChild === child.id ? 'text-white font-bold' : 'text-slate-700 font-medium'}>
               {child.child_name}
             </Text>
           </TouchableOpacity>
@@ -649,14 +654,14 @@ function HistoryView({ onBack }: { onBack: () => void }) {
                 <View className="px-4 pb-2 flex-row items-center ml-9">
                   <View className={`px-2.5 py-1 rounded-lg mr-2 ${
                     item.schedule_type === 'MORNING' ? 'bg-amber-100' :
-                    item.schedule_type === 'EVENING' ? 'bg-purple-100' : 'bg-blue-100'
+                    item.schedule_type === 'AFTERNOON' ? 'bg-purple-100' : 'bg-blue-100'
                   }`}>
                     <Text className={`text-xs font-semibold ${
                       item.schedule_type === 'MORNING' ? 'text-amber-700' :
-                      item.schedule_type === 'EVENING' ? 'text-purple-700' : 'text-blue-700'
+                      item.schedule_type === 'AFTERNOON' ? 'text-purple-700' : 'text-blue-700'
                     }`}>
                       {item.schedule_type === 'MORNING' ? '🌅 Morning Only' :
-                       item.schedule_type === 'EVENING' ? '🌇 Evening Only' : '☀️ Both Ways'}
+                       item.schedule_type === 'AFTERNOON' ? '🌇 Afternoon Only' : '☀️ Both Ways'}
                     </Text>
                   </View>
                 </View>

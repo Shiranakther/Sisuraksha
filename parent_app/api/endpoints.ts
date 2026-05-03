@@ -28,6 +28,7 @@ export const API_ENDPOINTS = {
   ATTENDANCE_SCHEDULE_GET: '/parent/attendance-schedule',
   ATTENDANCE_HISTORY: '/parent/attendance-history',
   HOLIDAYS: '/parent/holidays',
+  LIVE_TRACKING: '/parent/live-tracking',
 
   // Accident Detection
   ACCIDENT_ACTIVE: '/accident/active',

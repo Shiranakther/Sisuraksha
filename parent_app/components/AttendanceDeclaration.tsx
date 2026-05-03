@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useMyChildren, useDeclareAttendance } from '../hooks/useApi';
+import { useMyChildren, useDeclareAttendance, useGetHolidays } from '../hooks/useApi';
 import apiClient from '../api/axios';
 import { API_ENDPOINTS } from '../api/endpoints';
 
@@ -14,6 +14,7 @@ interface ChildDeclaration {
 
 export default function AttendanceDeclaration() {
   const { data: children, isLoading: loadingChildren } = useMyChildren();
+  const { data: holidays } = useGetHolidays();
   const declareMutation = useDeclareAttendance();
 
   const [declarations, setDeclarations] = useState<ChildDeclaration[]>([]);
@@ -189,7 +190,14 @@ export default function AttendanceDeclaration() {
     );
   }
 
-  const today = new Date().toLocaleDateString('en-US', {
+  const now = new Date();
+  const todayDateStr = now.toISOString().split('T')[0];
+  const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+  const holiday = (holidays as any[])?.find(h => h.holiday_date?.split('T')[0] === todayDateStr);
+  const isHoliday = !!holiday;
+  const isDisabled = isWeekend || isHoliday;
+
+  const todayDisplay = now.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric'
@@ -214,14 +222,14 @@ export default function AttendanceDeclaration() {
             </View>
             <View>
               <Text className="text-white font-bold text-base">Bus Attendance</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.7)' }} className="text-xs">{today}</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.7)' }} className="text-xs">{todayDisplay}</Text>
             </View>
           </View>
           <TouchableOpacity
             onPress={refetch}
-            disabled={loadingDeclarations}
+            disabled={loadingDeclarations || isDisabled}
             style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
-            className="p-2 rounded-lg"
+            className={`p-2 rounded-lg ${isDisabled ? 'opacity-50' : ''}`}
           >
             {loadingDeclarations ? (
               <ActivityIndicator size="small" color="white" />
@@ -244,51 +252,57 @@ export default function AttendanceDeclaration() {
               <View className="bg-purple-100 p-2 rounded-full mr-2">
                 <Ionicons name="person" size={16} color="#9333EA" />
               </View>
-              <Text className="text-slate-800 font-semibold flex-1">{child.child_name}</Text>
+              <Text className={`font-semibold flex-1 ${isDisabled ? 'text-slate-400' : 'text-slate-800'}`}>
+                {child.child_name}
+              </Text>
               {updatingChild === child.child_id && (
                 <ActivityIndicator size="small" color="#3B82F6" />
               )}
             </View>
 
             {/* Toggle Switches */}
-            <View className="flex-row" style={{ gap: 12 }}>
+            <View className={`flex-row ${isDisabled ? 'opacity-50' : ''}`} style={{ gap: 12 }}>
               {/* Morning Trip */}
-              <View className="flex-1 bg-orange-50 p-3 rounded-xl border border-orange-100">
+              <View className={`flex-1 p-3 rounded-xl border ${isDisabled ? 'bg-slate-50 border-slate-100' : 'bg-orange-50 border-orange-100'}`}>
                 <View className="flex-row items-center justify-between">
                   <View className="flex-row items-center">
-                    <Ionicons name="sunny" size={16} color="#EA580C" />
-                    <Text className="text-orange-700 font-medium text-xs ml-1">Morning</Text>
+                    <Ionicons name="sunny" size={16} color={isDisabled ? '#94A3B8' : '#EA580C'} />
+                    <Text className={`font-medium text-xs ml-1 ${isDisabled ? 'text-slate-500' : 'text-orange-700'}`}>Morning</Text>
                   </View>
                   <Switch
-                    value={child.morning_present}
-                    onValueChange={() => handleToggle(child.child_id, 'morningPresent', child.morning_present)}
+                    value={isDisabled ? false : child.morning_present}
+                    onValueChange={() => {
+                      if (!isDisabled) handleToggle(child.child_id, 'morningPresent', child.morning_present);
+                    }}
                     trackColor={{ false: '#FED7AA', true: '#86EFAC' }}
-                    thumbColor={child.morning_present ? '#22C55E' : '#F97316'}
-                    disabled={updatingChild === child.child_id}
+                    thumbColor={isDisabled ? '#CBD5E1' : (child.morning_present ? '#22C55E' : '#F97316')}
+                    disabled={isDisabled || updatingChild === child.child_id}
                   />
                 </View>
-                <Text className={`text-xs mt-1 ${child.morning_present ? 'text-green-600' : 'text-orange-600'}`}>
-                  {child.morning_present ? '✓ Taking bus to school' : '✗ Not taking bus'}
+                <Text className={`text-xs mt-1 ${isDisabled ? 'text-slate-400' : (child.morning_present ? 'text-green-600' : 'text-orange-600')}`}>
+                  {isDisabled ? 'No School' : (child.morning_present ? '✓ Taking bus to school' : '✗ Not taking bus')}
                 </Text>
               </View>
 
               {/* Evening Trip */}
-              <View className="flex-1 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+              <View className={`flex-1 p-3 rounded-xl border ${isDisabled ? 'bg-slate-50 border-slate-100' : 'bg-indigo-50 border-indigo-100'}`}>
                 <View className="flex-row items-center justify-between">
                   <View className="flex-row items-center">
-                    <Ionicons name="moon" size={16} color="#4F46E5" />
-                    <Text className="text-indigo-700 font-medium text-xs ml-1">Evening</Text>
+                    <Ionicons name="moon" size={16} color={isDisabled ? '#94A3B8' : '#4F46E5'} />
+                    <Text className={`font-medium text-xs ml-1 ${isDisabled ? 'text-slate-500' : 'text-indigo-700'}`}>Evening</Text>
                   </View>
                   <Switch
-                    value={child.evening_present}
-                    onValueChange={() => handleToggle(child.child_id, 'eveningPresent', child.evening_present)}
+                    value={isDisabled ? false : child.evening_present}
+                    onValueChange={() => {
+                      if (!isDisabled) handleToggle(child.child_id, 'eveningPresent', child.evening_present);
+                    }}
                     trackColor={{ false: '#C7D2FE', true: '#86EFAC' }}
-                    thumbColor={child.evening_present ? '#22C55E' : '#6366F1'}
-                    disabled={updatingChild === child.child_id}
+                    thumbColor={isDisabled ? '#CBD5E1' : (child.evening_present ? '#22C55E' : '#6366F1')}
+                    disabled={isDisabled || updatingChild === child.child_id}
                   />
                 </View>
-                <Text className={`text-xs mt-1 ${child.evening_present ? 'text-green-600' : 'text-indigo-600'}`}>
-                  {child.evening_present ? '✓ Taking bus home' : '✗ Not taking bus'}
+                <Text className={`text-xs mt-1 ${isDisabled ? 'text-slate-400' : (child.evening_present ? 'text-green-600' : 'text-indigo-600')}`}>
+                  {isDisabled ? 'No School' : (child.evening_present ? '✓ Taking bus home' : '✗ Not taking bus')}
                 </Text>
               </View>
             </View>
@@ -296,28 +310,37 @@ export default function AttendanceDeclaration() {
         ))}
       </View>
 
-      {/* Submit Button */}
+      {/* Footer / Status */}
       <View className="p-4 border-t border-slate-100">
-        <TouchableOpacity
-          onPress={handleSubmitAll}
-          disabled={isSubmitting}
-          style={{ backgroundColor: isSubmitting ? '#94A3B8' : '#22C55E' }}
-          className="p-4 rounded-xl flex-row items-center justify-center"
-        >
-          {isSubmitting ? (
-            <>
-              <ActivityIndicator size="small" color="white" />
-              <Text className="text-white font-bold ml-2">Saving...</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="checkmark-circle" size={20} color="white" />
-              <Text className="text-white font-bold ml-2">Submit Attendance</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        {isDisabled ? (
+          <View className="bg-slate-50 p-3 rounded-xl flex-row items-center justify-center border border-slate-200">
+            <Ionicons name={isHoliday ? "flag" : "calendar"} size={18} color={isHoliday ? "#EF4444" : "#F59E0B"} />
+            <Text className="text-slate-600 font-bold ml-2">
+              {isHoliday ? `Holiday: ${holiday?.holiday_name}` : "Weekend — No School Today"}
+            </Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={handleSubmitAll}
+            disabled={isSubmitting}
+            style={{ backgroundColor: isSubmitting ? '#94A3B8' : '#22C55E' }}
+            className="p-4 rounded-xl flex-row items-center justify-center"
+          >
+            {isSubmitting ? (
+              <>
+                <ActivityIndicator size="small" color="white" />
+                <Text className="text-white font-bold ml-2">Saving...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={20} color="white" />
+                <Text className="text-white font-bold ml-2">Submit Attendance</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
         <Text className="text-slate-400 text-xs text-center mt-2">
-          Confirm your child's bus attendance for today
+          {isDisabled ? "You cannot set attendance for weekends or holidays" : "Confirm your child's bus attendance for today"}
         </Text>
       </View>
     </View>

@@ -1,220 +1,187 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, RefreshControl, ScrollView } from 'react-native';
-// MapView removed
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, Linking, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import TrackingMap from '../../components/TrackingMap'; // Resolves to .web.tsx or .tsx
+import TrackingMap from '../../components/TrackingMap';
+import { useLiveTracking } from '../../hooks/useApi';
+import { router } from 'expo-router';
 
-interface BusLocation {
-  latitude: number;
-  longitude: number;
-  speed: number; // km/h
-  heading: number; // degrees
-  timestamp: string;
+// Helper to calculate distance in km
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
 }
-
-interface ParentStop {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  eta: string;
-  studentsCount: number; // Added to match previous usage implicitly if needed, or removable
-}
-
-// Mock data - replace with API calls
-const MOCK_BUS_LOCATION: BusLocation = {
-  latitude: 6.9290,
-  longitude: 79.8630,
-  speed: 28,
-  heading: 45,
-  timestamp: new Date().toISOString(),
-};
-
-const MOCK_PARENT_STOP: ParentStop = {
-  id: '1',
-  name: 'Bambalapitiya Station',
-  latitude: 6.9340,
-  longitude: 79.8680,
-  eta: '',  // ETA is calculated dynamically in the component
-  studentsCount: 0,
-};
-
-const MOCK_ROUTE = [
-  { latitude: 6.9271, longitude: 79.8612 },
-  { latitude: 6.9290, longitude: 79.8630 },
-  { latitude: 6.9310, longitude: 79.8660 },
-  { latitude: 6.9340, longitude: 79.8680 },
-];
 
 export default function TrackingScreen() {
-  const [busLocation, setBusLocation] = useState<BusLocation>(MOCK_BUS_LOCATION);
-  const [parentStop] = useState<ParentStop>(MOCK_PARENT_STOP);
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState('Just now');
-  const [isLive, setIsLive] = useState(true);
+  const { data: liveData, isLoading, error } = useLiveTracking();
+  const [lastUpdatedText, setLastUpdatedText] = useState('Just now');
 
-  // ETA calculation (mock)
-  const [eta, setEta] = useState({ minutes: 8, arrivalTime: '' });
-  const [distance, setDistance] = useState(1.2); // km
+  // Derived data
+  const busLocation = liveData?.busLocation;
+  const parentStop = liveData?.parentStop;
+  const driver = liveData?.driver;
 
-  // Calculate ETA based on distance and speed
+  const distance = useMemo(() => {
+    if (!busLocation || !parentStop) return 0;
+    return getDistance(
+      busLocation.latitude, busLocation.longitude,
+      parentStop.latitude, parentStop.longitude
+    );
+  }, [busLocation, parentStop]);
+
+  const etaMinutes = useMemo(() => {
+    if (!busLocation || distance === 0) return 0;
+    const speed = busLocation.speed > 5 ? busLocation.speed : 25; // fallback to 25km/h if stopped
+    return Math.max(1, Math.round((distance / speed) * 60));
+  }, [distance, busLocation?.speed]);
+
+  const arrivalTime = useMemo(() => {
+    if (etaMinutes === 0) return '--:--';
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + etaMinutes);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [etaMinutes]);
+
   useEffect(() => {
-    if (busLocation.speed > 0) {
-      const timeMinutes = Math.round((distance / busLocation.speed) * 60);
-      const arrivalDate = new Date();
-      arrivalDate.setMinutes(arrivalDate.getMinutes() + timeMinutes);
-      const arrivalTime = arrivalDate.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-      setEta({ minutes: timeMinutes, arrivalTime });
-    }
-  }, [busLocation.speed, distance]);
-
-  // Simulate real-time updates
-  useEffect(() => {
-    if (!isLive) return;
-
+    if (!busLocation?.lastUpdated) return;
     const interval = setInterval(() => {
-      // Simulate bus movement towards stop
-      setBusLocation(prev => ({
-        ...prev,
-        latitude: prev.latitude + (Math.random() * 0.001 - 0.0002),
-        longitude: prev.longitude + (Math.random() * 0.001 - 0.0002),
-        speed: Math.max(0, Math.min(45, prev.speed + (Math.random() * 10 - 5))),
-        timestamp: new Date().toISOString(),
-      }));
-
-      // Update distance (decrease as bus approaches)
-      setDistance(prev => Math.max(0.1, prev - 0.05));
-      setLastUpdated('Just now');
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [isLive]);
-
-  // Update "last updated" text
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const seconds = Math.round((Date.now() - new Date(busLocation.timestamp).getTime()) / 1000);
-      if (seconds < 10) {
-        setLastUpdated('Just now');
-      } else if (seconds < 60) {
-        setLastUpdated(`${seconds}s ago`);
-      } else {
-        setLastUpdated(`${Math.round(seconds / 60)}m ago`);
-      }
+      const diff = Math.round((Date.now() - new Date(busLocation.lastUpdated).getTime()) / 1000);
+      if (diff < 10) setLastUpdatedText('Just now');
+      else if (diff < 60) setLastUpdatedText(`${diff}s ago`);
+      else setLastUpdatedText(`${Math.round(diff/60)}m ago`);
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [busLocation.timestamp]);
+  }, [busLocation?.lastUpdated]);
 
-  const centerOnBus = useCallback(() => {
-    // Handled in TrackingMap
-  }, []);
+  if (isLoading && !liveData) {
+    return (
+      <View className="flex-1 items-center justify-center bg-slate-50">
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text className="mt-4 text-slate-500 font-medium">Connecting to bus GPS...</Text>
+      </View>
+    );
+  }
 
-  const fitToRoute = useCallback(() => {
-    // Handled in TrackingMap
-  }, []);
-
-  const toggleLive = () => {
-    setIsLive(!isLive);
-  };
+  if (!liveData) {
+    return (
+      <View className="flex-1 items-center justify-center bg-slate-50 px-10">
+        <View className="bg-white p-8 rounded-3xl shadow-sm items-center border border-slate-100">
+          <View className="bg-slate-100 p-4 rounded-full mb-4">
+            <Ionicons name="bus-outline" size={48} color="#94A3B8" />
+          </View>
+          <Text className="text-xl font-bold text-slate-800 text-center">No Active Trip</Text>
+          <Text className="text-slate-400 text-center mt-2 leading-5">
+            There is no live bus trip for your child at the moment. Tracking will start automatically when the driver begins the route.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-slate-100">
       {/* Header */}
-      <View className="bg-blue-600 pt-14 pb-4 px-6">
+      <View className="bg-blue-600 pt-14 pb-4 px-6 shadow-md">
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="text-xl font-semibold text-white">Bus Tracker</Text>
-            <Text className="text-blue-200 text-sm">Route #12 • Colombo Central</Text>
+            <Text className="text-xl font-bold text-white">Live Tracking</Text>
+            <Text className="text-blue-100 text-xs font-medium opacity-90">
+              {driver?.vehicleNumber || 'Bus'} • {driver?.name || 'Driver'}
+            </Text>
           </View>
-          <TouchableOpacity
-            onPress={toggleLive}
-            className={`flex-row items-center px-3 py-1.5 rounded-full ${isLive ? 'bg-green-500' : 'bg-slate-500'}`}
-          >
-            <View className={`w-2 h-2 rounded-full mr-2 ${isLive ? 'bg-white' : 'bg-slate-300'}`} />
-            <Text className="text-white text-xs font-bold">{isLive ? 'LIVE' : 'PAUSED'}</Text>
-          </TouchableOpacity>
+          <View className="bg-emerald-500 flex-row items-center px-3 py-1.5 rounded-full shadow-sm">
+            <View className="w-1.5 h-1.5 rounded-full bg-white mr-2 animate-pulse" />
+            <Text className="text-white text-[10px] font-black uppercase tracking-tighter">Live</Text>
+          </View>
         </View>
       </View>
 
       {/* ETA Banner */}
-      <View className="bg-white mx-4 -mt-4 rounded-2xl shadow-lg p-4 z-10">
+      <View className="bg-white mx-4 -mt-4 rounded-2xl shadow-xl p-5 z-10 border border-slate-50">
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <View className="bg-blue-100 p-3 rounded-xl mr-3">
-              <Ionicons name="time" size={28} color="#2563EB" />
+            <View className="bg-blue-50 p-3 rounded-2xl mr-4 border border-blue-100">
+              <Ionicons name="time" size={32} color="#2563EB" />
             </View>
             <View>
-              <Text className="text-slate-400 text-xs uppercase">Arriving In</Text>
-              <Text className="text-3xl font-bold text-slate-800">{eta.minutes} min</Text>
+              <Text className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Arriving In</Text>
+              <View className="flex-row items-baseline">
+                <Text className="text-4xl font-black text-slate-900">{etaMinutes}</Text>
+                <Text className="text-lg font-bold text-slate-900 ml-1">min</Text>
+              </View>
             </View>
           </View>
-          <View className="items-end">
-            <Text className="text-slate-400 text-xs">ETA</Text>
-            <Text className="text-xl font-bold text-blue-600">{eta.arrivalTime}</Text>
+          <View className="items-end bg-slate-50 p-3 rounded-2xl border border-slate-100">
+            <Text className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">ETA</Text>
+            <Text className="text-xl font-black text-blue-600">{arrivalTime}</Text>
           </View>
         </View>
 
-        <View className="flex-row mt-3 pt-3 border-t border-slate-100">
-          <View className="flex-1 flex-row items-center">
-            <Ionicons name="navigate" size={16} color="#64748B" />
-            <Text className="text-slate-600 text-sm ml-1">{distance.toFixed(1)} km away</Text>
+        <View className="flex-row mt-5 pt-4 border-t border-slate-50 gap-2">
+          <View className="flex-1 bg-slate-50/50 py-2 rounded-xl items-center border border-slate-50">
+            <Ionicons name="navigate" size={14} color="#64748B" />
+            <Text className="text-slate-900 text-xs font-bold mt-1">{distance.toFixed(1)} km</Text>
+            <Text className="text-[9px] text-slate-400 uppercase font-bold">Away</Text>
           </View>
-          <View className="flex-1 flex-row items-center justify-center">
-            <Ionicons name="speedometer" size={16} color="#64748B" />
-            <Text className="text-slate-600 text-sm ml-1">{Math.round(busLocation.speed)} km/h</Text>
+          <View className="flex-1 bg-slate-50/50 py-2 rounded-xl items-center border border-slate-50">
+            <Ionicons name="speedometer" size={14} color="#64748B" />
+            <Text className="text-slate-900 text-xs font-bold mt-1">{Math.round(busLocation?.speed || 0)} km/h</Text>
+            <Text className="text-[9px] text-slate-400 uppercase font-bold">Speed</Text>
           </View>
-          <View className="flex-1 flex-row items-center justify-end">
-            <Ionicons name="sync" size={16} color={isLive ? '#22C55E' : '#94A3B8'} />
-            <Text className={`text-sm ml-1 ${isLive ? 'text-green-600' : 'text-slate-400'}`}>{lastUpdated}</Text>
+          <View className="flex-1 bg-slate-50/50 py-2 rounded-xl items-center border border-slate-50">
+            <Ionicons name="sync" size={14} color="#22C55E" />
+            <Text className="text-emerald-600 text-xs font-bold mt-1">{lastUpdatedText}</Text>
+            <Text className="text-[9px] text-slate-400 uppercase font-bold">Updated</Text>
           </View>
         </View>
       </View>
 
-      {/* Map (Via Component) */}
-      <View className="flex-1 mt-4">
+      {/* Map */}
+      <View className="flex-1 mt-4 rounded-t-3xl overflow-hidden shadow-inner bg-slate-200">
         <TrackingMap
           busLocation={busLocation}
           parentStop={parentStop}
-          routeCoordinates={MOCK_ROUTE}
-          centerOnBus={centerOnBus} // Pass dummy or real if we hook it up later
-          fitToRoute={fitToRoute}
+          routeCoordinates={[]} // Can be fetched if route_polyline is available
+          centerOnBus={() => {}}
+          fitToRoute={() => {}}
         />
       </View>
 
-      {/* Bottom Info Card */}
-      <View className="bg-white rounded-t-3xl shadow-lg px-6 py-5">
-        <View className="flex-row items-center mb-3">
-          <View className="bg-green-100 p-2 rounded-full mr-3">
-            <Ionicons name="flag" size={20} color="#22C55E" />
+      {/* Footer Info */}
+      <View className="bg-white px-6 pt-5 pb-8 shadow-2xl border-t border-slate-50">
+        <View className="flex-row items-center mb-5 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+          <View className="bg-emerald-100 p-2.5 rounded-xl mr-4 shadow-sm">
+            <Ionicons name="location" size={22} color="#059669" />
           </View>
           <View className="flex-1">
-            <Text className="text-xs text-slate-400 uppercase">Your Stop</Text>
-            <Text className="text-lg font-bold text-slate-800">{parentStop.name}</Text>
+            <Text className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Pickup Point</Text>
+            <Text className="text-base font-bold text-slate-800" numberOfLines={1}>{parentStop?.name || 'Your Stop'}</Text>
           </View>
-          <View className="bg-blue-50 px-3 py-2 rounded-xl">
-            <Text className="text-blue-600 font-bold">{eta.minutes} min</Text>
-          </View>
+          <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
         </View>
 
         <View className="flex-row gap-3">
           <TouchableOpacity
-            onPress={() => {/* Navigate to attendance */ }}
-            className="flex-1 flex-row items-center justify-center bg-slate-100 py-3 rounded-xl"
+            onPress={() => router.push('/attendance-history')}
+            className="flex-1 flex-row items-center justify-center bg-slate-100 py-4 rounded-2xl"
           >
-            <Ionicons name="list" size={18} color="#64748B" />
-            <Text className="text-slate-700 font-semibold ml-2">View Attendance</Text>
+            <Ionicons name="list" size={20} color="#475569" />
+            <Text className="text-slate-700 font-bold ml-2">History</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => {/* Call driver */ }}
-            className="flex-row items-center justify-center bg-blue-500 px-5 py-3 rounded-xl"
+            onPress={() => {
+              if (driver?.name) Alert.alert('Call Driver', `Do you want to call ${driver.name}?`, [{ text: 'Cancel' }, { text: 'Call', onPress: () => Linking.openURL('tel:123456789') }]);
+            }}
+            className="flex-1 flex-row items-center justify-center bg-blue-600 py-4 rounded-2xl shadow-lg shadow-blue-200"
           >
-            <Ionicons name="call" size={18} color="white" />
-            <Text className="text-white font-semibold ml-2">Call</Text>
+            <Ionicons name="call" size={20} color="white" />
+            <Text className="text-white font-bold ml-2">Contact</Text>
           </TouchableOpacity>
         </View>
       </View>

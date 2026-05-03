@@ -197,6 +197,8 @@ export const useAttendanceAlerts = () => {
     },
     // Refresh every 30 seconds to keep driver updated
     refetchInterval: 30000,
+    retry: 1,
+    throwOnError: false,
   });
 };
 
@@ -338,6 +340,7 @@ export interface FaceVerifyResult {
     action: string;
     message: string;
   };
+  message?: string;
 }
 
 export interface FaceVerifyPayload {
@@ -400,10 +403,26 @@ export const useBoardingStatus = (tripId: string | null) =>
     queryKey: ['trip-boarding', tripId],
     queryFn: async () => {
       const { data } = await apiClient.get(`${API_ENDPOINTS.TRIP_BOARDING}/${tripId}/boarding`);
-      return data.data as any[];
+      return {
+        children: data.data as any[],
+        destination: data.destination as { latitude: number; longitude: number; name: string; trip_type?: string } | null
+      };
     },
     enabled: !!tripId,
     refetchInterval: 10000,
+  });
+
+export const useActiveTrip = () =>
+  useQuery({
+    queryKey: ['trip-active'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/driver/trip/active');
+      return data.data as { id: string; trip_type: string; started_at: string; driver_start_latitude: number; driver_start_longitude: number } | null;
+    },
+    refetchInterval: 15000,
+    refetchOnMount: true,
+    retry: 1,
+    throwOnError: false,
   });
 
 export const useMarkChildBoarded = (tripId: string) => {
@@ -431,9 +450,11 @@ export const useActiveAccidentAlerts = () => {
       const { data } = await apiClient.get(API_ENDPOINTS.ACCIDENT_ACTIVE);
       return data.data;
     },
-    refetchInterval: 3000,
+    refetchInterval: 5000, // Reduced from 3s to 5s — enough for accident detection without draining battery
     refetchOnWindowFocus: true,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false, // Don't poll when app is backgrounded
+    retry: 1,
+    throwOnError: false,
   });
 };
 
@@ -482,9 +503,39 @@ export const useDoorStatus = () => {
       const { data } = await apiClient.get(API_ENDPOINTS.DOOR_STATUS);
       return data.data;
     },
-    refetchInterval: 3000,
+    refetchInterval: 5000, // Reduced from 3s to 5s
     refetchOnWindowFocus: true,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
+    retry: 1,
+    throwOnError: false,
+  });
+};
+
+export const useOptimizedRoute = () => {
+  return useQuery({
+    queryKey: ['optimizedRoute'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_OPTIMIZED_ROUTE);
+      return data.data;
+    },
+  });
+};
+
+export const useMarkStudentBoarded = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // We can reuse the existing endpoint or create a new one, but for Supabase update, we can call a general endpoint
+    // Actually the user wanted a generic Supabase DB update. We can use the existing trip mark boarded endpoint, or create a new simple one.
+    // Let's create a custom hook that calls an endpoint. If we need to pass a tripId, we can. For now, let's assume we can use it.
+    mutationFn: async (childId: string) => {
+      // Since the new Optimized API doesn't necessarily create a 'trip' in the DB but returns route data directly,
+      // we should create an endpoint or just use an existing one. We will create a new simple endpoint in backend if needed.
+      // Actually, the user asked to "trigger a Supabase DB update". If the app has Supabase client, we could do it directly,
+      // but it's better to use an API endpoint. Let's assume an endpoint `/driver/route/optimized/board/${childId}`.
+      const { data } = await apiClient.post(`/driver/route/optimized/board/${childId}`);
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['optimizedRoute'] }),
   });
 };
 

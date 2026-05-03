@@ -66,5 +66,6 @@ export const API_ENDPOINTS = {
   TRIP_CREATE: '/driver/trip/create',
   TRIP_BOARDING: '/driver/trip',
   TRIP_MARK_BOARD: '/driver/trip',
+  TRIP_OPTIMIZED_ROUTE: '/driver/route/optimized',
 
 } as const;

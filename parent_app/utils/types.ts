@@ -10,12 +10,13 @@ export interface AuthResponse {
   status: string;
   message: string;
   token: string;
+  refreshToken: string;
   data: User;
 }
 
 export interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  signIn: (accessToken: string, user: User) => Promise<void>;
+  signIn: (accessToken: string, refreshToken: string, user: User) => Promise<void>;
   signOut: () => Promise<void>;
 }

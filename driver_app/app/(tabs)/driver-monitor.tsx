@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef, useContext } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import apiClient from '../../api/axios';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import { StatCard } from '../../components/ui/stat-card';
 import { AlertTimelineItem, TimelineGroup } from '../../components/ui/alert-timeline';
+import { AuthContext } from '../../auth/AuthContext';
 
 interface MonitorAlert {
   id: number;
@@ -127,7 +128,10 @@ const speakOnce = (text: string, language: string) =>
   });
 
 export default function DriverMonitorScreen() {
-  const driverId = '8c394627-e397-4bd5-928f-4cc66cfebac1';
+  const authContext = useContext(AuthContext);
+  // Use the logged-in driver's userId — fall back to empty string so
+  // API calls are simply skipped rather than fetching the wrong driver's data.
+  const driverId = authContext?.user?.userId ?? '';
 
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({ status: 'offline', enabled: true, lastHeartbeat: null });
   const [modelStatus, setModelStatus] = useState<ModelStatus>({ running: false, pid: null });
@@ -160,6 +164,7 @@ export default function DriverMonitorScreen() {
   }, [stopSpeech]);
 
   const fetchStatus = useCallback(async () => {
+    if (!driverId) return;
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MONITOR_STATUS}?driver_id=${driverId}`);
       setSystemStatus(response.data);
@@ -169,6 +174,7 @@ export default function DriverMonitorScreen() {
   }, [driverId]);
 
   const fetchModelStatus = useCallback(async () => {
+    if (!driverId) return;
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MODEL_STATUS}?driver_id=${driverId}`);
       setModelStatus(response.data);
@@ -178,6 +184,7 @@ export default function DriverMonitorScreen() {
   }, [driverId]);
 
   const fetchAlerts = useCallback(async () => {
+    if (!driverId) return;
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.DRIVER_MONITOR_ALERTS}?driver_id=${driverId}`);
       if (response.data && Array.isArray(response.data)) {
@@ -365,6 +372,7 @@ export default function DriverMonitorScreen() {
   }, [fetchStatus, fetchModelStatus, fetchAlerts, fetchCalibrationStatus]);
 
   useEffect(() => {
+    if (!driverId) return;
     fetchStatus();
     fetchModelStatus();
     fetchAlerts();
@@ -383,7 +391,7 @@ export default function DriverMonitorScreen() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, fetchAlerts, fetchCalibrationStatus, fetchModelStatus, fetchStatus]);
+  }, [autoRefresh, driverId, fetchAlerts, fetchCalibrationStatus, fetchModelStatus, fetchStatus]);
 
   useEffect(() => {
     if (!autoRefresh) return;
