@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $modules = @(
-    @{ Name = 'Driver monitoring'; Path = 'Driver monitering'; Requirements = 'requirements.txt' },
+    @{ Name = 'Driver monitering'; Path = 'Driver monitering'; Requirements = 'requirements.txt' },
     @{ Name = 'Face recognition'; Path = 'face_recognition'; Requirements = 'requirements.txt' },
     @{ Name = 'Footboard safety'; Path = 'footboard safety'; Requirements = 'requirements.txt' },
     @{ Name = 'Window safety'; Path = 'window safety'; Requirements = 'requirements.txt' }
