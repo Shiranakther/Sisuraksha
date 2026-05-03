@@ -1,6 +1,7 @@
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 
+import http from 'http';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -27,8 +28,10 @@ import faceRecognitionRoutes from './routes/faceRecognitionRoutes.js';
 import blockchainRoutes from './routes/blockchainRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import accidentRoutes from './routes/accidentRoutes.js';
+import { attachFootboardLiveWebSocket } from './realtime/footboardLive.js';
 
 const app = express();
+const server = http.createServer(app);
 
 const PORT = process.env.PORT || 5001;
 
@@ -58,6 +61,7 @@ const limiter = rateLimit({
   max: process.env.NODE_ENV === 'production' ? 300 : 5000, // Higher limit in development
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/api/safety/live-state',
 });
 app.use(limiter);
 
@@ -93,7 +97,10 @@ app.use('/api/accident', accidentRoutes);
 
 app.use(errorHandler);
 
+attachFootboardLiveWebSocket(server);
+
 // Start the server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode.`);
+  console.log(`Footboard live WebSocket: ws://<server-ip>:${PORT}/ws/footboard-live`);
 });

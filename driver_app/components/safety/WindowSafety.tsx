@@ -150,6 +150,8 @@ export default function WindowSafetyMonitor() {
         const response = await apiClient.post(API_ENDPOINTS.WINDOW_MODEL_START, { driver_id: driverId });
         if (response.data?.success) {
           setModelStatus({ running: true, pid: response.data.pid });
+        } else {
+          setModelStatus({ running: false, pid: null });
         }
       } else {
         const response = await apiClient.post(API_ENDPOINTS.WINDOW_MODEL_STOP, { driver_id: driverId });
@@ -159,9 +161,11 @@ export default function WindowSafetyMonitor() {
       }
     } catch (error) {
       console.error('Failed to toggle model:', error);
+      setModelStatus({ running: false, pid: null });
+      fetchModelStatus();
     }
     setIsToggling(false);
-  }, [driverId]);
+  }, [driverId, fetchModelStatus]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -178,6 +182,7 @@ export default function WindowSafetyMonitor() {
     if (autoRefresh) {
       interval = setInterval(() => {
         fetchStatus();
+        fetchModelStatus();
         fetchAlerts();
       }, 10000);
     }
@@ -185,7 +190,7 @@ export default function WindowSafetyMonitor() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, fetchStatus, fetchAlerts]);
+  }, [autoRefresh, fetchStatus, fetchModelStatus, fetchAlerts]);
 
   const groupedAlerts = useMemo(() => {
     const today = new Date();

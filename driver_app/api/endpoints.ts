@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   SAFETY_STATUS: '/safety/status',
   SAFETY_ALERTS: '/safety/alerts',
   SAFETY_STATS: '/safety/stats',
+  SAFETY_MODES: '/safety/modes',
   MODEL_START: '/safety/model/start',
   MODEL_STOP: '/safety/model/stop',
   MODEL_STATUS: '/safety/model/status',
@@ -35,6 +36,9 @@ export const API_ENDPOINTS = {
   DRIVER_MODEL_START: '/driver-monitor/model/start',
   DRIVER_MODEL_STOP: '/driver-monitor/model/stop',
   DRIVER_MODEL_STATUS: '/driver-monitor/model/status',
+  DRIVER_MODEL_CALIBRATE: '/driver-monitor/model/calibrate',
+  DRIVER_MODEL_CALIBRATION_RETRY: '/driver-monitor/model/calibration/retry',
+  DRIVER_MODEL_CALIBRATION_STATUS: '/driver-monitor/model/calibration/status',
 
   // Window Safety
   WINDOW_SAFETY_STATUS: '/window-safety/status',
@@ -51,7 +55,10 @@ export const API_ENDPOINTS = {
   // Accident Detection
   ACCIDENT_ACTIVE: '/accident/active',
   ACCIDENT_HISTORY: '/accident/history',
+  ACCIDENT_LIVE_STATE: '/accident/live-state',
+  ACCIDENT_CANCEL_ACTIVE: '/accident/cancel-active',
   DOOR_STATUS: '/accident/door-status',
+  DOOR_RESET: '/accident/door-reset',
 
   // Trip / Route Management
   TRIP_REQUESTS: '/driver/trip/requests',

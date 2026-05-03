@@ -1,34 +1,105 @@
 import { pool } from '../config/postgres.js';
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getFootboardLiveState, updateFootboardLiveState } from '../realtime/footboardLive.js';
 
-// Get current directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Store last heartbeat time in memory (per driver)
 const driverHeartbeats = new Map();
-
-// Store system enabled state (per driver) - controls whether alerts are processed
 const driverSystemEnabled = new Map();
-
-// Store running model processes (per driver)
 const modelProcesses = new Map();
+const driverDetectionModes = new Map();
 
-// Model configuration
+const FOOTBOARD_ROOT = path.join(__dirname, '../../footboard safety');
+
 const MODEL_CONFIG = {
-  pythonPath: path.join(__dirname, '../../footboard safety/venv/Scripts/python.exe'),
-  scriptPath: path.join(__dirname, '../../footboard safety/riyabeth_pro_safety.py'),
-  cwd: path.join(__dirname, '../../footboard safety')
+  pythonCandidates: [
+    path.join(FOOTBOARD_ROOT, '.venv/Scripts/python.exe'),
+    path.join(FOOTBOARD_ROOT, 'venv/Scripts/python.exe'),
+    path.join(__dirname, '../../.venv/Scripts/python.exe'),
+  ],
+  scriptPath: path.join(FOOTBOARD_ROOT, 'riyabeth_pro_safety.py'),
+  cwd: FOOTBOARD_ROOT,
+  startupGraceMs: 800,
 };
 
-// POST - Start model process
-export const startModel = (req, res) => {
-  const { driver_id } = req.body;
-  const driverId = driver_id || 'default';
+function resolvePythonPath() {
+  const overridePath = process.env.FOOTBOARD_PYTHON;
+  if (overridePath && existsSync(overridePath)) return overridePath;
 
-  // Check if already running
+  for (const candidate of MODEL_CONFIG.pythonCandidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+function parseBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    return ['1', 'true', 'yes', 'on', 'occupied', 'blocked'].includes(value.trim().toLowerCase());
+  }
+  return false;
+}
+
+function getDetectionModes(driverId) {
+  const modes = driverDetectionModes.get(driverId) || {};
+  return {
+    aiEnabled: modes.aiEnabled !== false,
+    irEnabled: modes.irEnabled !== false,
+  };
+}
+
+function setDetectionModes(driverId, updates = {}) {
+  const current = getDetectionModes(driverId);
+  const next = {
+    aiEnabled: updates.aiEnabled === undefined ? current.aiEnabled : parseBoolean(updates.aiEnabled),
+    irEnabled: updates.irEnabled === undefined ? current.irEnabled : parseBoolean(updates.irEnabled),
+  };
+
+  driverDetectionModes.set(driverId, next);
+  return next;
+}
+
+function normalizeHardwareAlert(body) {
+  const hasStepPayload = ['s1', 's2', 's3'].some(key => Object.prototype.hasOwnProperty.call(body, key));
+  if (!hasStepPayload) return null;
+
+  const s1 = parseBoolean(body.s1);
+  const s2 = parseBoolean(body.s2);
+  const s3 = parseBoolean(body.s3);
+  const risk = Number(body.risk ?? (s3 ? 3 : s2 ? 2 : s1 ? 1 : 0));
+
+  let stepLabel = 'Clear';
+  if (s3) stepLabel = 'Bottom Step';
+  else if (s2) stepLabel = 'Mid Step';
+  else if (s1) stepLabel = 'Top Step';
+
+  const status = risk >= 3 ? 'CRITICAL' : risk >= 1 ? 'WARNING' : 'SAFE';
+  const alertType = risk > 0 ? `IR Sensors Only (${stepLabel})` : 'IR Sensors Clear';
+  const message = risk > 0
+    ? `Footboard ${stepLabel.toLowerCase()} occupied from ESP32 IR sensor`
+    : 'Footboard IR sensors clear';
+
+  return {
+    alert_type: alertType,
+    status,
+    speed: 0,
+    confidence: risk > 0 ? 1 : 0,
+    message,
+    sound: risk > 0,
+  };
+}
+
+export const startModel = (req, res) => {
+  const { driver_id, camera_source, camera_url, esp32_cam_ip, phone_ip, ai_enabled, ir_enabled } = req.body;
+  const driverId = driver_id || 'default';
+  const detectionModes = setDetectionModes(driverId, { aiEnabled: ai_enabled, irEnabled: ir_enabled });
+
   if (modelProcesses.has(driverId)) {
     const existingProcess = modelProcesses.get(driverId);
     if (existingProcess && !existingProcess.killed) {
@@ -41,55 +112,109 @@ export const startModel = (req, res) => {
     }
   }
 
+  const pythonPath = resolvePythonPath();
+  if (!pythonPath) {
+    return res.status(500).json({
+      success: false,
+      error: 'Python environment not found for footboard safety',
+      details: 'Expected footboard safety/.venv/Scripts/python.exe',
+    });
+  }
+
+  if (!existsSync(MODEL_CONFIG.cwd) || !existsSync(MODEL_CONFIG.scriptPath)) {
+    return res.status(500).json({
+      success: false,
+      error: 'Footboard safety script path is invalid',
+      details: `script=${MODEL_CONFIG.scriptPath}`,
+    });
+  }
+
   try {
-    console.log(`🚀 Starting model for driver ${driverId}...`);
-    console.log(`📁 Python: ${MODEL_CONFIG.pythonPath}`);
-    console.log(`📁 Script: ${MODEL_CONFIG.scriptPath}`);
-    console.log(`📁 CWD: ${MODEL_CONFIG.cwd}`);
+    console.log(`[Footboard ${driverId}] Starting model...`);
+    console.log(`[Footboard ${driverId}] Python: ${pythonPath}`);
+    console.log(`[Footboard ${driverId}] Script: ${MODEL_CONFIG.scriptPath}`);
+    console.log(`[Footboard ${driverId}] CWD: ${MODEL_CONFIG.cwd}`);
 
-    // Construct arguments array
     const args = [MODEL_CONFIG.scriptPath, '--driver_id', driverId];
+    if (phone_ip) args.push('--phone_ip', phone_ip);
+    if (esp32_cam_ip) args.push('--esp32_cam_ip', esp32_cam_ip);
+    if (camera_source) args.push('--camera_source', camera_source);
+    if (camera_url) args.push('--camera_url', camera_url);
+    if (!detectionModes.aiEnabled) args.push('--disable_ai');
+    if (!detectionModes.irEnabled) args.push('--disable_ir');
 
-    const modelProcess = spawn(MODEL_CONFIG.pythonPath, args, {
+    const modelProcess = spawn(pythonPath, args, {
       cwd: MODEL_CONFIG.cwd,
       detached: false,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
 
+    let startupSettled = false;
+    let startupTimer = null;
+
+    const failStartup = (error, details) => {
+      if (startupSettled) return;
+      startupSettled = true;
+
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+        startupTimer = null;
+      }
+
+      modelProcesses.delete(driverId);
+      driverSystemEnabled.set(driverId, false);
+
+      return res.status(500).json({ success: false, error, details });
+    };
+
     modelProcess.stdout.on('data', (data) => {
-      console.log(`[Model ${driverId}] ${data.toString().trim()}`);
+      console.log(`[Footboard ${driverId}] ${data.toString().trim()}`);
     });
 
     modelProcess.stderr.on('data', (data) => {
-      console.error(`[Model ${driverId} ERR] ${data.toString().trim()}`);
+      console.error(`[Footboard ${driverId} ERR] ${data.toString().trim()}`);
     });
 
     modelProcess.on('close', (code) => {
-      console.log(`[Model ${driverId}] Process exited with code ${code}`);
+      console.log(`[Footboard ${driverId}] Process exited with code ${code}`);
       modelProcesses.delete(driverId);
+
+      if (!startupSettled) {
+        failStartup('Footboard safety model exited during startup', `Exit code ${code}`);
+      }
     });
 
     modelProcess.on('error', (err) => {
-      console.error(`[Model ${driverId}] Error: ${err.message}`);
+      console.error(`[Footboard ${driverId}] Error: ${err.message}`);
       modelProcesses.delete(driverId);
+
+      if (!startupSettled) {
+        failStartup('Failed to start footboard safety model', err.message);
+      }
     });
 
-    modelProcesses.set(driverId, modelProcess);
-    driverSystemEnabled.set(driverId, true);
+    startupTimer = setTimeout(() => {
+      if (startupSettled) return;
+      startupSettled = true;
+      startupTimer = null;
 
-    res.json({
-      success: true,
-      running: true,
-      message: 'Model started successfully',
-      pid: modelProcess.pid
-    });
+      modelProcesses.set(driverId, modelProcess);
+      driverSystemEnabled.set(driverId, true);
+
+      res.json({
+        success: true,
+        running: true,
+        message: 'Model started successfully',
+        pid: modelProcess.pid
+      });
+    }, MODEL_CONFIG.startupGraceMs);
   } catch (error) {
     console.error('Error starting model:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// POST - Stop model process
 export const stopModel = (req, res) => {
   const { driver_id } = req.body;
   const driverId = driver_id || 'default';
@@ -105,9 +230,8 @@ export const stopModel = (req, res) => {
   }
 
   try {
-    console.log(`🛑 Stopping model for driver ${driverId} (PID: ${modelProcess.pid})...`);
+    console.log(`[Footboard ${driverId}] Stopping model (PID: ${modelProcess.pid})...`);
 
-    // Kill the process tree on Windows
     if (process.platform === 'win32') {
       spawn('taskkill', ['/pid', modelProcess.pid, '/f', '/t']);
     } else {
@@ -128,7 +252,6 @@ export const stopModel = (req, res) => {
   }
 };
 
-// GET - Check model status
 export const getModelStatus = (req, res) => {
   const { driver_id } = req.query;
   const driverId = driver_id || 'default';
@@ -143,7 +266,6 @@ export const getModelStatus = (req, res) => {
   });
 };
 
-// POST - Receive heartbeat from model
 export const receiveHeartbeat = (req, res) => {
   const { driver_id } = req.body;
   const driverId = driver_id || 'default';
@@ -152,13 +274,14 @@ export const receiveHeartbeat = (req, res) => {
   res.status(200).json({ success: true, message: 'Heartbeat received' });
 };
 
-// GET - Check system status
 export const getSystemStatus = (req, res) => {
   const { driver_id } = req.query;
   const driverId = driver_id || 'default';
 
   const lastHeartbeat = driverHeartbeats.get(driverId);
-  const isEnabled = driverSystemEnabled.get(driverId) !== false; // Default to true
+  const isEnabled = driverSystemEnabled.get(driverId) !== false;
+  const modelProcess = modelProcesses.get(driverId);
+  const isModelRunning = modelProcess && !modelProcess.killed;
   let systemStatus = 'offline';
 
   if (lastHeartbeat) {
@@ -167,23 +290,63 @@ export const getSystemStatus = (req, res) => {
       systemStatus = 'online';
     }
   }
+  if (systemStatus === 'offline' && isModelRunning) {
+    systemStatus = 'online';
+  }
 
   res.json({
     status: systemStatus,
     enabled: isEnabled,
+    modes: getDetectionModes(driverId),
     driver_id: driverId,
     lastHeartbeat: lastHeartbeat ? lastHeartbeat.toISOString() : null,
     uptime: lastHeartbeat ? Math.floor((Date.now() - lastHeartbeat.getTime()) / 1000) : null
   });
 };
 
-// POST - Toggle system enabled/disabled
+export const getDetectionModeStatus = (req, res) => {
+  const { driver_id } = req.query;
+  const driverId = driver_id || 'default';
+
+  res.json({
+    success: true,
+    driver_id: driverId,
+    ...getDetectionModes(driverId),
+  });
+};
+
+export const updateDetectionModeStatus = (req, res) => {
+  const { driver_id, ai_enabled, ir_enabled } = req.body;
+  const driverId = driver_id || 'default';
+  const modes = setDetectionModes(driverId, { aiEnabled: ai_enabled, irEnabled: ir_enabled });
+
+  console.log(
+    `[Footboard ${driverId}] Modes AI=${modes.aiEnabled ? 'ON' : 'OFF'} IR=${modes.irEnabled ? 'ON' : 'OFF'}`
+  );
+
+  res.json({
+    success: true,
+    driver_id: driverId,
+    ...modes,
+  });
+};
+
+export const receiveLiveState = (req, res) => {
+  const state = updateFootboardLiveState(req.body);
+  driverHeartbeats.set(req.body.driver_id || 'default', new Date());
+  res.status(200).json({ success: true, data: state });
+};
+
+export const getLiveState = (req, res) => {
+  res.json(getFootboardLiveState());
+};
+
 export const toggleSystem = (req, res) => {
   const { driver_id, enabled } = req.body;
   const driverId = driver_id || 'default';
 
   driverSystemEnabled.set(driverId, enabled);
-  console.log(`🔄 System ${enabled ? 'ENABLED' : 'DISABLED'} for driver ${driverId}`);
+  console.log(`[Footboard ${driverId}] System ${enabled ? 'ENABLED' : 'DISABLED'}`);
 
   res.json({
     success: true,
@@ -193,13 +356,21 @@ export const toggleSystem = (req, res) => {
   });
 };
 
-// POST - Receive alert from model
 export const createAlert = async (req, res) => {
   try {
-    const { driver_id, timestamp, alert_type, status, speed, confidence, message, sound } = req.body;
+    const hardwareAlert = normalizeHardwareAlert(req.body);
+    const {
+      driver_id,
+      timestamp,
+      alert_type,
+      status,
+      speed,
+      confidence,
+      message,
+      sound
+    } = hardwareAlert ? { ...req.body, ...hardwareAlert } : req.body;
     const driverId = driver_id || 'default';
 
-    // Check if system is enabled for this driver
     const isEnabled = driverSystemEnabled.get(driverId) !== false;
     if (!isEnabled) {
       return res.status(200).json({ success: false, message: 'System is disabled, alert not saved' });
@@ -211,18 +382,16 @@ export const createAlert = async (req, res) => {
       [
         driver_id || null,
         timestamp || new Date().toISOString(),
-        alert_type,
-        status,
+        alert_type || 'Footboard Event',
+        status || 'SAFE',
         speed || 0,
         confidence || 0,
-        message,
-        sound || false  // Default to false if not provided
+        message || 'Footboard safety event received',
+        sound || false
       ]
     );
 
-    console.log(`📥 Safety Alert: ${alert_type} - ${status} (${speed} km/h)`);
-
-    // Update heartbeat on any alert
+    console.log(`[Footboard ${driverId}] Alert: ${alert_type || 'Footboard Event'} - ${status || 'SAFE'} (${speed || 0} km/h)`);
     driverHeartbeats.set(driverId, new Date());
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -232,7 +401,6 @@ export const createAlert = async (req, res) => {
   }
 };
 
-// GET - Fetch alerts for frontend
 export const getAlerts = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
@@ -257,12 +425,11 @@ export const getAlerts = async (req, res) => {
   }
 };
 
-// GET - Fetch only critical/danger alerts
 export const getCriticalAlerts = async (req, res) => {
   try {
     const { driver_id } = req.query;
 
-    let query = `SELECT * FROM foot_board_safty 
+    let query = `SELECT * FROM foot_board_safty
        WHERE (status = 'CRITICAL' OR alert_type = 'Danger')`;
     const params = [];
 
@@ -279,13 +446,12 @@ export const getCriticalAlerts = async (req, res) => {
   }
 };
 
-// GET - Stats summary
 export const getStats = async (req, res) => {
   try {
     const { driver_id } = req.query;
 
     let query = `
-      SELECT 
+      SELECT
         COUNT(*) as total_alerts,
         COUNT(CASE WHEN status = 'CRITICAL' THEN 1 END) as critical_count,
         COUNT(CASE WHEN status = 'WARNING' THEN 1 END) as warning_count,

@@ -470,6 +470,32 @@ export const useAccidentHistory = (limit = 20) => {
   });
 };
 
+export const useAccidentLiveState = () => {
+  return useQuery({
+    queryKey: ['accidentAlerts', 'live-state'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.ACCIDENT_LIVE_STATE);
+      return data.data;
+    },
+    refetchInterval: 1000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+  });
+};
+
+export const useCancelActiveAccidentAlert = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post(API_ENDPOINTS.ACCIDENT_CANCEL_ACTIVE);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accidentAlerts'] });
+    },
+  });
+};
+
 export const useDoorStatus = () => {
   return useQuery({
     queryKey: ['doorStatus'],
@@ -510,5 +536,18 @@ export const useMarkStudentBoarded = () => {
       return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['optimizedRoute'] }),
+  });
+};
+
+export const useResetEmergencyDoor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post(API_ENDPOINTS.DOOR_RESET);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['doorStatus'] });
+    },
   });
 };

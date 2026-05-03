@@ -9,7 +9,10 @@ import {
   getStats,
   startModel,
   stopModel,
-  getModelStatus
+  getModelStatus,
+  calibrateModel,
+  retryCalibrationStage,
+  getCalibrationStatus
 } from '../controllers/driverMonitorController.js';
 
 const router = express.Router();
@@ -18,6 +21,9 @@ const router = express.Router();
 router.post('/model/start', startModel);
 router.post('/model/stop', stopModel);
 router.get('/model/status', getModelStatus);
+router.post('/model/calibrate', calibrateModel);
+router.post('/model/calibration/retry', retryCalibrationStage);
+router.get('/model/calibration/status', getCalibrationStatus);
 
 // Heartbeat & Status
 router.post('/heartbeat', receiveHeartbeat);

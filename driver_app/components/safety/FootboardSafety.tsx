@@ -1,27 +1,37 @@
-import React, { useEffect, useState, useCallback, useContext, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import apiClient from '../../api/axios';
+import apiClient, { WS_ORIGIN_URL } from '../../api/axios';
 import { API_ENDPOINTS } from '../../api/endpoints';
-import { AuthContext } from '../../auth/AuthContext';
+import { NETWORK_CONFIG } from '../../api/networkConfig';
 import { StatCard } from '../ui/stat-card';
 import { AlertTimelineItem, TimelineGroup } from '../ui/alert-timeline';
+
+const FOOTBOARD_ESP_IP = NETWORK_CONFIG.FOOTBOARD_ESP_IP;
+const LIVE_SENSOR_POLL_MS = 200;
+const LIVE_SENSOR_TIMEOUT_MS = 900;
+const LIVE_SENSOR_MAX_MISSES = 10;
+const LIVE_ALARM_COOLDOWN_MS = 1500;
+const LIVE_WS_STALE_MS = 1000;
+const LIVE_WS_RECONNECT_MS = 1000;
+const MODEL_START_MAX_WAIT_MS = 30000;
 
 interface SafetyAlert {
   id: number;
   timestamp: string;
-  alert_type: string;
-  status: string;
+  alert_type: string | null;
+  status: string | null;
   speed: number;
   confidence: number;
-  message: string;
+  message: string | null;
   created_at: string;
 }
 
 interface SystemStatus {
   status: 'online' | 'offline';
   enabled: boolean;
+  modes?: DetectionModes;
   lastHeartbeat: string | null;
 }
 
@@ -30,76 +40,171 @@ interface ModelStatus {
   pid: number | null;
 }
 
+interface DetectionModes {
+  aiEnabled: boolean;
+  irEnabled: boolean;
+}
+
+type SensorSteps = { s1: boolean; s2: boolean; s3: boolean };
+
+interface LiveSensorState extends SensorSteps {
+  online: boolean;
+  updatedAt: string | null;
+  speedKmh: number;
+  moving: boolean;
+}
+
 // ---------- Alert helpers ----------
 
 /** Parse `alert_type` like "IR Sensors Only (Bottom Step)" → which IR steps fired. */
-const extractSensorSteps = (alertType: string): { s1: boolean; s2: boolean; s3: boolean } | null => {
-  if (!alertType.includes('IR Sensors')) return null;
-  if (alertType.includes('Bottom Step')) return { s1: false, s2: false, s3: true };
-  if (alertType.includes('Mid Step'))    return { s1: false, s2: true,  s3: false };
-  if (alertType.includes('Top Step'))    return { s1: true,  s2: false, s3: false };
+const extractSensorSteps = (alertType: string | null): SensorSteps | null => {
+  const type = alertType || '';
+  if (!type.includes('IR Sensors')) return null;
+  if (type.includes('Bottom Step')) return { s1: false, s2: false, s3: true };
+  if (type.includes('Mid Step'))    return { s1: false, s2: true,  s3: false };
+  if (type.includes('Top Step'))    return { s1: true,  s2: false, s3: false };
   // Dual AI+IR — treat all as active
-  if (alertType.includes('AI + IR'))     return { s1: true,  s2: true,  s3: true  };
+  if (type.includes('AI + IR'))     return { s1: true,  s2: true,  s3: true  };
   return null;
 };
 
 /** Map alert_type → detection source tag for the badge. */
-const getDetectionSource = (alertType: string): 'IR_ONLY' | 'AI_ONLY' | 'DUAL' | null => {
-  if (alertType.includes('AI + IR'))       return 'DUAL';
-  if (alertType.includes('IR Sensors Only')) return 'IR_ONLY';
-  if (alertType.includes('AI Vision Only')) return 'AI_ONLY';
+const getDetectionSource = (alertType: string | null): 'IR_ONLY' | 'AI_ONLY' | 'DUAL' | null => {
+  const type = alertType || '';
+  if (type.includes('AI + IR'))       return 'DUAL';
+  if (type.includes('IR Sensors Only')) return 'IR_ONLY';
+  if (type.includes('AI Vision Only')) return 'AI_ONLY';
   return null;
 };
 
 /** Strip legacy "!!!" wrapper from old-format messages stored in DB. */
-const sanitizeMessage = (msg: string): string =>
-  msg.replace(/^!+\s*/g, '').replace(/\s*!+$/g, '').trim();
+const sanitizeMessage = (msg: string | null): string =>
+  (msg || 'Footboard safety event received').replace(/^!+\s*/g, '').replace(/\s*!+$/g, '').trim();
 
-const getAlertIcon = (alertType: string, status: string): keyof typeof Ionicons.glyphMap => {
-  if (alertType.includes('Bottom Step')) return 'alert';
-  if (alertType.includes('IR Sensors Only')) return 'hardware-chip';
-  if (alertType.includes('AI + IR')) return 'shield-half';
-  if (alertType.includes('AI Vision')) return 'eye';
+const getAlertIcon = (alertType: string | null, status: string | null): keyof typeof Ionicons.glyphMap => {
+  const type = alertType || '';
+  if (type.includes('Bottom Step')) return 'alert';
+  if (type.includes('IR Sensors Only')) return 'hardware-chip';
+  if (type.includes('AI + IR')) return 'shield-half';
+  if (type.includes('AI Vision')) return 'eye';
   if (status === 'CRITICAL') return 'warning';
   if (status === 'WARNING') return 'alert-circle';
   if (status === 'SAFE') return 'checkmark-circle';
   return 'information-circle';
 };
 
-const getAlertTitle = (alertType: string, status: string): string => {
+const getAlertTitle = (alertType: string | null, status: string | null): string => {
+  const type = alertType || 'Footboard Event';
   // IR-only sensor triggers — step-specific titles
-  if (alertType.includes('IR Sensors Only')) {
-    if (alertType.includes('Bottom Step')) return 'Danger: Bottom Step Blocked (S3)';
-    if (alertType.includes('Mid Step'))    return 'Warning: Mid Step Occupied (S2)';
-    if (alertType.includes('Top Step'))    return 'Caution: Entry Step Occupied (S1)';
+  if (type.includes('IR Sensors Only')) {
+    if (type.includes('Bottom Step')) return 'Danger: Bottom Step Blocked (S3)';
+    if (type.includes('Mid Step'))    return 'Warning: Mid Step Occupied (S2)';
+    if (type.includes('Top Step'))    return 'Caution: Entry Step Occupied (S1)';
     return 'IR Sensor Triggered';
   }
-  if (alertType.includes('AI + IR'))       return 'Critical: AI + IR Sensors Triggered';
-  if (alertType.includes('AI Vision Only')) return 'AI Vision: Person on Footboard';
+  if (type.includes('AI + IR'))       return 'Critical: AI + IR Sensors Triggered';
+  if (type.includes('AI Vision Only')) return status === 'CRITICAL'
+    ? 'Critical: AI Vision Footboard Danger'
+    : 'AI Vision: Person on Footboard';
   if (status === 'CRITICAL') return 'Critical Alert';
   if (status === 'WARNING')  return 'Warning Detected';
   if (status === 'SAFE')     return 'Area Clear';
-  return alertType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 };
 
 export default function FootboardMonitor() {
-  const authContext = useContext(AuthContext);
   const driverId = '8c394627-e397-4bd5-928f-4cc66cfebac1';
 
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({ status: 'offline', enabled: true, lastHeartbeat: null });
   const [modelStatus, setModelStatus] = useState<ModelStatus>({ running: false, pid: null });
   const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
+  const [liveSensorState, setLiveSensorState] = useState<LiveSensorState>({
+    s1: false,
+    s2: false,
+    s3: false,
+    online: false,
+    updatedAt: null,
+    speedKmh: 0,
+    moving: false,
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
+  const [isStartingModel, setIsStartingModel] = useState(false);
+  const [detectionModes, setDetectionModes] = useState<DetectionModes>({ aiEnabled: true, irEnabled: true });
+  const [isUpdatingModes, setIsUpdatingModes] = useState(false);
 
   // Settings
   const [showSettings, setShowSettings] = useState(false);
-  const [espIp, setEspIp] = useState('192.168.1.106');
+  const espIp = FOOTBOARD_ESP_IP;
 
   // Audio Alarms
   const soundRef = useRef<Audio.Sound | null>(null);
+  const criticalSoundRef = useRef<Audio.Sound | null>(null);
   const lastAlertId = useRef<number | null>(null);
+  const lastLiveOccupied = useRef(false);
+  const lastLiveMovingOccupied = useRef(false);
+  const lastLiveAlarmAt = useRef(0);
+  const liveSensorMisses = useRef(0);
+  const livePollInFlight = useRef(false);
+  const lastLiveWsAt = useRef(0);
+  const startupRequestedAt = useRef<number | null>(null);
+  const monitoringActiveRef = useRef(false);
+  const detectionModesRef = useRef<DetectionModes>({ aiEnabled: true, irEnabled: true });
+
+  useEffect(() => {
+    monitoringActiveRef.current = modelStatus.running;
+
+    if (!modelStatus.running) {
+      lastLiveOccupied.current = false;
+      lastLiveMovingOccupied.current = false;
+      liveSensorMisses.current = 0;
+      livePollInFlight.current = false;
+      lastLiveWsAt.current = 0;
+      setLiveSensorState({
+        s1: false,
+        s2: false,
+        s3: false,
+        online: false,
+        updatedAt: null,
+        speedKmh: 0,
+        moving: false,
+      });
+    }
+  }, [modelStatus.running]);
+
+  useEffect(() => {
+    detectionModesRef.current = detectionModes;
+
+    if (!detectionModes.irEnabled) {
+      lastLiveOccupied.current = false;
+      lastLiveMovingOccupied.current = false;
+      setLiveSensorState(prev => ({
+        ...prev,
+        s1: false,
+        s2: false,
+        s3: false,
+      }));
+    }
+  }, [detectionModes]);
+
+  useEffect(() => {
+    if (!isStartingModel || startupRequestedAt.current === null) {
+      return;
+    }
+
+    const heartbeatTime = systemStatus.lastHeartbeat
+      ? new Date(systemStatus.lastHeartbeat).getTime()
+      : 0;
+    const hasFreshHeartbeat =
+      Number.isFinite(heartbeatTime) && heartbeatTime >= startupRequestedAt.current;
+    const startupTimedOut = Date.now() - startupRequestedAt.current >= MODEL_START_MAX_WAIT_MS;
+
+    if (hasFreshHeartbeat || startupTimedOut) {
+      setIsStartingModel(false);
+      startupRequestedAt.current = null;
+    }
+  }, [isStartingModel, systemStatus.lastHeartbeat]);
 
   // Pre-load sound once on mount
   useEffect(() => {
@@ -114,10 +219,15 @@ export default function FootboardMonitor() {
         const { sound: initialSound } = await Audio.Sound.createAsync(
           require('../../assets/sounds/warining footboard is occupied.mp3')
         );
+        const { sound: initialCriticalSound } = await Audio.Sound.createAsync(
+          require('../../assets/sounds/Critical alert. Footboard occupied while moving. Stop the bus immediately..mp3')
+        );
         if (isMounted) {
           soundRef.current = initialSound;
+          criticalSoundRef.current = initialCriticalSound;
         } else {
           initialSound.unloadAsync();
+          initialCriticalSound.unloadAsync();
         }
       } catch (err) {
         console.error("Failed to load audio file", err);
@@ -130,38 +240,135 @@ export default function FootboardMonitor() {
       if (soundRef.current) {
         soundRef.current.unloadAsync();
       }
+      if (criticalSoundRef.current) {
+        criticalSoundRef.current.unloadAsync();
+      }
     };
   }, []);
 
-  const playAlarm = useCallback(async () => {
+  const playSound = useCallback(async (sound: Audio.Sound | null) => {
     try {
-      if (!soundRef.current) return;
-      const status = await soundRef.current.getStatusAsync();
+      if (!sound) return;
+      const status = await sound.getStatusAsync();
       if (!status.isLoaded) return;
       // Only stop if already playing — calling stopAsync on an idle sound throws
       if (status.isPlaying) {
-        await soundRef.current.stopAsync();
+        await sound.stopAsync();
       }
-      await soundRef.current.setPositionAsync(0);
-      await soundRef.current.playAsync();
+      await sound.setPositionAsync(0);
+      await sound.playAsync();
     } catch (error) {
       console.error("Couldn't play audio alarm", error);
     }
   }, []);
+
+  const playAlarm = useCallback(() => {
+    void playSound(soundRef.current);
+  }, [playSound]);
+
+  const playCriticalAlarm = useCallback(() => {
+    void playSound(criticalSoundRef.current);
+  }, [playSound]);
+
+  const applyLiveSensorData = useCallback((data: Partial<SensorSteps> & { speed_kmh?: number; moving?: boolean }) => {
+    if (!monitoringActiveRef.current) return;
+    const irEnabled = detectionModesRef.current.irEnabled;
+
+    const speedKmh = Number(data.speed_kmh ?? 0);
+    const nextSensorState = {
+      s1: irEnabled && Boolean(data.s1),
+      s2: irEnabled && Boolean(data.s2),
+      s3: irEnabled && Boolean(data.s3),
+      online: true,
+      updatedAt: new Date().toISOString(),
+      speedKmh: Number.isFinite(speedKmh) ? speedKmh : 0,
+      moving: Boolean(data.moving),
+    };
+    const isOccupied = nextSensorState.s1 || nextSensorState.s2 || nextSensorState.s3;
+    const isMovingOccupied = nextSensorState.moving && isOccupied;
+    const now = Date.now();
+
+    if (
+      isMovingOccupied &&
+      !lastLiveMovingOccupied.current &&
+      now - lastLiveAlarmAt.current >= LIVE_ALARM_COOLDOWN_MS
+    ) {
+      lastLiveAlarmAt.current = now;
+      playCriticalAlarm();
+    } else if (
+      isOccupied &&
+      !lastLiveOccupied.current &&
+      now - lastLiveAlarmAt.current >= LIVE_ALARM_COOLDOWN_MS
+    ) {
+      lastLiveAlarmAt.current = now;
+      playAlarm();
+    }
+
+    lastLiveOccupied.current = isOccupied;
+    lastLiveMovingOccupied.current = isMovingOccupied;
+    setLiveSensorState(prev => {
+      const changed =
+        prev.s1 !== nextSensorState.s1 ||
+        prev.s2 !== nextSensorState.s2 ||
+        prev.s3 !== nextSensorState.s3 ||
+        prev.online !== nextSensorState.online ||
+        prev.moving !== nextSensorState.moving ||
+        Math.abs(prev.speedKmh - nextSensorState.speedKmh) >= 0.1;
+
+      return changed ? nextSensorState : prev;
+    });
+  }, [playAlarm, playCriticalAlarm]);
 
   const fetchStatus = useCallback(async () => {
     try {
       const response = await apiClient.get(`${API_ENDPOINTS.SAFETY_STATUS}?driver_id=${driverId}`);
       const data = response.data;
       setSystemStatus(data);
-      // If system is offline, model can't be running — keep UI in sync
-      if (data.status === 'offline') {
-        setModelStatus({ running: false, pid: null });
+      if (data?.modes) {
+        setDetectionModes({
+          aiEnabled: data.modes.aiEnabled !== false,
+          irEnabled: data.modes.irEnabled !== false,
+        });
       }
     } catch (error) {
       console.error('Failed to fetch status:', error);
     }
   }, [driverId]);
+
+  const fetchDetectionModes = useCallback(async () => {
+    try {
+      const response = await apiClient.get(`${API_ENDPOINTS.SAFETY_MODES}?driver_id=${driverId}`);
+      setDetectionModes({
+        aiEnabled: response.data.aiEnabled !== false,
+        irEnabled: response.data.irEnabled !== false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch detection modes:', error);
+    }
+  }, [driverId]);
+
+  const updateDetectionModes = useCallback(async (updates: Partial<DetectionModes>) => {
+    const nextModes = { ...detectionModesRef.current, ...updates };
+    setDetectionModes(nextModes);
+    setIsUpdatingModes(true);
+
+    try {
+      const response = await apiClient.post(API_ENDPOINTS.SAFETY_MODES, {
+        driver_id: driverId,
+        ai_enabled: nextModes.aiEnabled,
+        ir_enabled: nextModes.irEnabled,
+      });
+      setDetectionModes({
+        aiEnabled: response.data.aiEnabled !== false,
+        irEnabled: response.data.irEnabled !== false,
+      });
+    } catch (error) {
+      console.error('Failed to update detection modes:', error);
+      fetchDetectionModes();
+    } finally {
+      setIsUpdatingModes(false);
+    }
+  }, [driverId, fetchDetectionModes]);
 
   const fetchModelStatus = useCallback(async () => {
     try {
@@ -182,8 +389,12 @@ export default function FootboardMonitor() {
         if (response.data.length > 0) {
           const latestAlert = response.data[0];
 
-          if (lastAlertId.current !== null && latestAlert.id !== lastAlertId.current) {
-            if (latestAlert.status === 'CRITICAL' || latestAlert.status === 'WARNING') {
+          const isSensorAlert = (latestAlert.alert_type || '').includes('IR Sensors');
+
+          if (lastAlertId.current !== null && latestAlert.id !== lastAlertId.current && !isSensorAlert) {
+            if (latestAlert.status === 'CRITICAL') {
+              playCriticalAlarm();
+            } else if (latestAlert.status === 'WARNING') {
               playAlarm();
             }
           }
@@ -193,19 +404,62 @@ export default function FootboardMonitor() {
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
     }
-  }, [driverId]);
+  }, [driverId, playAlarm, playCriticalAlarm]);
+
+  const fetchLiveSensorState = useCallback(async () => {
+    if (!monitoringActiveRef.current) return;
+    if (livePollInFlight.current) return;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    livePollInFlight.current = true;
+    try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), LIVE_SENSOR_TIMEOUT_MS);
+      const response = await fetch(`http://${espIp}/data?t=${Date.now()}`, {
+        signal: controller.signal,
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`ESP32 returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      liveSensorMisses.current = 0;
+      applyLiveSensorData(data);
+    } catch {
+      liveSensorMisses.current += 1;
+      if (liveSensorMisses.current >= LIVE_SENSOR_MAX_MISSES) {
+        setLiveSensorState(prev => ({
+          ...prev,
+          online: false,
+        }));
+      }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      livePollInFlight.current = false;
+    }
+  }, [applyLiveSensorData, espIp]);
 
   const toggleModel = useCallback(async (shouldRun: boolean) => {
     setIsToggling(true);
     try {
       if (shouldRun) {
+        setIsStartingModel(true);
+        startupRequestedAt.current = Date.now();
         const response = await apiClient.post(API_ENDPOINTS.MODEL_START, {
-          driver_id: driverId
+          driver_id: driverId,
+          ai_enabled: detectionModesRef.current.aiEnabled,
+          ir_enabled: detectionModesRef.current.irEnabled,
         });
         if (response.data.success) {
           setModelStatus({ running: true, pid: response.data.pid });
         }
       } else {
+        setIsStartingModel(false);
+        startupRequestedAt.current = null;
         const response = await apiClient.post(API_ENDPOINTS.MODEL_STOP, { driver_id: driverId });
         if (response.data.success) {
           setModelStatus({ running: false, pid: null });
@@ -215,6 +469,10 @@ export default function FootboardMonitor() {
       }
     } catch (error) {
       console.error('Failed to toggle model:', error);
+      if (shouldRun) {
+        setIsStartingModel(false);
+        startupRequestedAt.current = null;
+      }
       // Re-fetch to get true state from server on error
       fetchModelStatus();
     }
@@ -223,9 +481,28 @@ export default function FootboardMonitor() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchStatus(), fetchModelStatus(), fetchAlerts()]);
+    await Promise.all([
+      fetchStatus(),
+      fetchModelStatus(),
+      fetchDetectionModes(),
+      fetchAlerts(),
+      ...(modelStatus.running ? [fetchLiveSensorState()] : []),
+    ]);
     setRefreshing(false);
-  }, [fetchStatus, fetchModelStatus, fetchAlerts]);
+  }, [fetchStatus, fetchModelStatus, fetchDetectionModes, fetchAlerts, fetchLiveSensorState, modelStatus.running]);
+
+  useEffect(() => {
+    if (!isStartingModel) return;
+
+    const intervalId = setInterval(() => {
+      void fetchStatus();
+      void fetchModelStatus();
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [fetchModelStatus, fetchStatus, isStartingModel]);
 
   useEffect(() => {
     let isMounted = true;
@@ -238,6 +515,7 @@ export default function FootboardMonitor() {
       await Promise.all([
         fetchStatus(),
         fetchModelStatus(),
+        fetchDetectionModes(),
         fetchAlerts()
       ]);
 
@@ -255,7 +533,72 @@ export default function FootboardMonitor() {
       isMounted = false;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [autoRefresh, fetchStatus, fetchModelStatus, fetchAlerts, modelStatus.running]);
+  }, [autoRefresh, fetchStatus, fetchModelStatus, fetchDetectionModes, fetchAlerts, modelStatus.running]);
+
+  useEffect(() => {
+    if (!autoRefresh || !modelStatus.running) return;
+
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    const connect = () => {
+      if (stopped) return;
+
+      ws = new WebSocket(`${WS_ORIGIN_URL}/ws/footboard-live`);
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.event !== 'footboard_live') return;
+          lastLiveWsAt.current = Date.now();
+          liveSensorMisses.current = 0;
+          applyLiveSensorData(message.data);
+        } catch {
+          // Ignore malformed live messages.
+        }
+      };
+
+      ws.onclose = () => {
+        if (stopped) return;
+        reconnectTimer = setTimeout(connect, LIVE_WS_RECONNECT_MS);
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws?.close();
+    };
+  }, [applyLiveSensorData, autoRefresh, modelStatus.running]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    const pollLiveSensors = () => {
+      if (!isMounted || !autoRefresh || !modelStatus.running) return;
+      const wsIsFresh = Date.now() - lastLiveWsAt.current < LIVE_WS_STALE_MS;
+      if (wsIsFresh) return;
+      void fetchLiveSensorState();
+    };
+
+    if (autoRefresh && modelStatus.running) {
+      pollLiveSensors();
+      intervalId = setInterval(pollLiveSensors, LIVE_SENSOR_POLL_MS);
+    }
+
+    return () => {
+      isMounted = false;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [autoRefresh, fetchLiveSensorState, modelStatus.running]);
 
   const groupedAlerts = useMemo(() => {
     const today = new Date();
@@ -297,17 +640,33 @@ export default function FootboardMonitor() {
     };
   }, [alerts, groupedAlerts]);
 
-  // Latest IR-triggered alert used for the "Last Sensor Event" card
-  const latestIrAlert = useMemo(
-    () => alerts.find(a => a.alert_type.includes('IR Sensors')) ?? null,
-    [alerts]
-  );
-  const latestSteps = latestIrAlert ? extractSensorSteps(latestIrAlert.alert_type) : null;
+  const monitorSwitchValue = modelStatus.running || isStartingModel;
+  const monitorStatusText = isStartingModel
+    ? 'Starting'
+    : modelStatus.running ? 'Monitoring' : 'Inactive';
+  const monitorIconName: keyof typeof Ionicons.glyphMap = isStartingModel
+    ? 'hourglass-outline'
+    : modelStatus.running ? 'scan-outline' : 'eye-off-outline';
 
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   };
+
+  const liveSensorRisk = !modelStatus.running
+    ? 'OFF'
+    : !detectionModes.irEnabled
+    ? 'IR OFF'
+    : liveSensorState.s3
+    ? 'CRITICAL'
+    : liveSensorState.moving && (liveSensorState.s1 || liveSensorState.s2)
+    ? 'CRITICAL'
+    : (liveSensorState.s1 || liveSensorState.s2) ? 'WARNING' : 'SAFE';
+  const liveSensorStatusText = !modelStatus.running
+    ? 'Monitoring is off'
+    : !detectionModes.irEnabled ? 'IR detection is disabled. Speed still updates.'
+    : liveSensorState.online ? 'Reading live ESP32 IR + speed state' : 'ESP32 live state unavailable';
+  const modeSummary = `${detectionModes.aiEnabled ? 'AI on' : 'AI off'} | ${detectionModes.irEnabled ? 'IR on' : 'IR off'}`;
 
   return (
     <View className="flex-1 bg-slate-100">
@@ -333,11 +692,11 @@ export default function FootboardMonitor() {
             <View className="flex-row items-center justify-between">
               <View className="flex-row items-center">
                 <View className={`w-16 h-16 rounded-2xl items-center justify-center ${modelStatus.running ? 'bg-white/20' : 'bg-white/30'}`}>
-                  {isToggling ? (
+                  {isToggling || isStartingModel ? (
                     <ActivityIndicator size={32} color="white" />
                   ) : (
                     <Ionicons
-                      name={modelStatus.running ? "scan-outline" : "eye-off-outline"}
+                      name={monitorIconName}
                       size={32}
                       color="white"
                     />
@@ -346,21 +705,61 @@ export default function FootboardMonitor() {
                 <View className="ml-4">
                   <Text className="text-white/70 text-sm uppercase tracking-wider">Footboard Area</Text>
                   <Text className="text-white text-2xl font-bold">
-                    {isToggling
+                    {isToggling && !isStartingModel
                       ? (modelStatus.running ? 'Stopping' : 'Starting')
-                      : (modelStatus.running ? 'Monitoring' : 'Inactive')}
+                      : monitorStatusText}
                   </Text>
+                  {isStartingModel && (
+                    <Text className="text-white/70 text-xs mt-1">Please wait for the system to turn on</Text>
+                  )}
+                  <Text className="text-white/70 text-xs mt-1">{modeSummary}</Text>
                 </View>
               </View>
 
               <Switch
-                value={modelStatus.running}
+                value={monitorSwitchValue}
                 onValueChange={toggleModel}
-                disabled={isToggling}
+                disabled={isToggling || isStartingModel}
                 trackColor={{ false: 'rgba(255,255,255,0.3)', true: 'rgba(255,255,255,0.3)' }}
                 thumbColor="white"
                 style={{ transform: [{ scale: 1.2 }] }}
               />
+            </View>
+
+            <View className="mt-5 pt-4 border-t border-white/20">
+              <Text className="text-white/70 text-xs uppercase tracking-wider mb-3">Detection Sources</Text>
+              <View className="flex-row gap-3">
+                <View className="flex-1 rounded-xl bg-white/10 px-3 py-3">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1 mr-2">
+                      <Ionicons name="eye-outline" size={18} color="white" />
+                      <Text className="text-white font-semibold ml-2">AI</Text>
+                    </View>
+                    <Switch
+                      value={detectionModes.aiEnabled}
+                      onValueChange={(value) => updateDetectionModes({ aiEnabled: value })}
+                      disabled={isUpdatingModes}
+                      trackColor={{ false: 'rgba(255,255,255,0.25)', true: 'rgba(255,255,255,0.45)' }}
+                      thumbColor="white"
+                    />
+                  </View>
+                </View>
+                <View className="flex-1 rounded-xl bg-white/10 px-3 py-3">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1 mr-2">
+                      <Ionicons name="hardware-chip-outline" size={18} color="white" />
+                      <Text className="text-white font-semibold ml-2">IR</Text>
+                    </View>
+                    <Switch
+                      value={detectionModes.irEnabled}
+                      onValueChange={(value) => updateDetectionModes({ irEnabled: value })}
+                      disabled={isUpdatingModes}
+                      trackColor={{ false: 'rgba(255,255,255,0.25)', true: 'rgba(255,255,255,0.45)' }}
+                      thumbColor="white"
+                    />
+                  </View>
+                </View>
+              </View>
             </View>
           </View>
         </View>
@@ -412,66 +811,96 @@ export default function FootboardMonitor() {
           />
         </View>
 
-        {/* --- LAST SENSOR EVENT CARD --- */}
-        {latestSteps && latestIrAlert && (
-          <View className="mx-4 mt-4 bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-            <View className="flex-row items-center justify-between mb-3">
-              <View className="flex-row items-center">
-                <Ionicons name="hardware-chip-outline" size={16} color="#64748B" />
-                <Text className="text-sm font-semibold text-slate-700 ml-2">Last IR Sensor Event</Text>
-              </View>
-              <Text className="text-xs text-slate-400">{formatTime(latestIrAlert.created_at)}</Text>
-            </View>
-            {/* Step indicator: S1=Entry, S2=Mid, S3=Bottom */}
-            <View className="flex-row gap-2">
-              {[
-                { key: 's1', label: 'Entry', desc: 'Step 1',  active: latestSteps.s1, isDanger: false },
-                { key: 's2', label: 'Mid',   desc: 'Step 2',  active: latestSteps.s2, isDanger: false },
-                { key: 's3', label: 'Bottom', desc: 'Step 3', active: latestSteps.s3, isDanger: true  },
-              ].map(step => (
-                <View
-                  key={step.key}
-                  className={`flex-1 py-3 rounded-xl items-center ${
-                    step.active
-                      ? (step.isDanger ? 'bg-red-500' : 'bg-amber-400')
-                      : 'bg-slate-100'
-                  }`}
-                >
-                  <Ionicons
-                    name={step.active ? 'person' : 'remove-circle-outline'}
-                    size={18}
-                    color={step.active ? 'white' : '#CBD5E1'}
-                  />
-                  <Text className={`text-xs font-bold mt-1 ${step.active ? 'text-white' : 'text-slate-400'}`}>
-                    {step.key.toUpperCase()}
-                  </Text>
-                  <Text className={`text-xs mt-0.5 ${step.active ? 'text-white/80' : 'text-slate-300'}`}>
-                    {step.active ? (step.isDanger ? 'DANGER' : 'BLOCKED') : 'CLEAR'}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            {/* Speed at time of event */}
-            <View className="flex-row items-center mt-3 pt-3 border-t border-slate-100">
-              <Ionicons name="speedometer-outline" size={14} color="#94A3B8" />
-              <Text className="text-xs text-slate-500 ml-1">
-                Speed at trigger:{' '}
-                <Text className={`font-semibold ${latestIrAlert.speed > 5 ? 'text-red-500' : 'text-slate-700'}`}>
-                  {latestIrAlert.speed} km/h
-                </Text>
+        {/* --- LIVE SENSOR OCCUPATION CARD --- */}
+        <View className="mx-4 mt-4 bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+          <View className="flex-row items-center justify-between mb-3">
+            <View className="flex-row items-center">
+              <Ionicons name="hardware-chip-outline" size={16} color="#64748B" />
+              <Text className="text-sm font-semibold text-slate-700 ml-2">
+                {detectionModes.irEnabled ? 'Live IR + Speed State' : 'Live Speed State'}
               </Text>
-              <View className={`ml-auto px-2 py-0.5 rounded-full ${
-                latestIrAlert.status === 'CRITICAL' ? 'bg-red-100' : 'bg-amber-100'
-              }`}>
-                <Text className={`text-xs font-semibold ${
-                  latestIrAlert.status === 'CRITICAL' ? 'text-red-600' : 'text-amber-600'
-                }`}>
-                  {latestIrAlert.status}
+            </View>
+            <Text className="text-xs text-slate-400">
+              {!modelStatus.running
+                ? 'Inactive'
+                : liveSensorState.updatedAt ? formatTime(liveSensorState.updatedAt) : 'Waiting for ESP32'}
+            </Text>
+          </View>
+          {/* Step indicator: S1=Entry, S2=Mid, S3=Bottom */}
+          <View className="flex-row gap-2">
+            {[
+              { key: 's1', label: 'Entry', desc: 'Step 1', active: liveSensorState.s1, isDanger: false },
+              { key: 's2', label: 'Mid', desc: 'Step 2', active: liveSensorState.s2, isDanger: false },
+              { key: 's3', label: 'Bottom', desc: 'Step 3', active: liveSensorState.s3, isDanger: true },
+            ].map(step => (
+              <View
+                key={step.key}
+                className={`flex-1 py-3 rounded-xl items-center ${
+                  step.active
+                    ? (step.isDanger ? 'bg-red-500' : 'bg-amber-400')
+                    : 'bg-slate-100'
+                }`}
+              >
+                <Ionicons
+                  name={step.active ? 'person' : 'remove-circle-outline'}
+                  size={18}
+                  color={step.active ? 'white' : '#CBD5E1'}
+                />
+                <Text className={`text-xs font-bold mt-1 ${step.active ? 'text-white' : 'text-slate-400'}`}>
+                  {step.key.toUpperCase()}
+                </Text>
+                <Text className={`text-xs mt-0.5 ${step.active ? 'text-white/80' : 'text-slate-300'}`}>
+                  {step.active ? (step.isDanger ? 'DANGER' : 'BLOCKED') : 'CLEAR'}
                 </Text>
               </View>
+            ))}
+          </View>
+          <View className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-100 flex-row items-center">
+            <View className={`w-10 h-10 rounded-xl items-center justify-center ${
+              liveSensorState.moving ? 'bg-red-100' : 'bg-emerald-100'
+            }`}>
+              <Ionicons
+                name={liveSensorState.moving ? 'speedometer-outline' : 'pause-circle-outline'}
+                size={22}
+                color={liveSensorState.moving ? '#DC2626' : '#059669'}
+              />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-xs text-slate-400 uppercase font-semibold">Bus Movement</Text>
+              <Text className="text-slate-800 font-bold">
+                {liveSensorState.moving ? 'Moving' : 'Stopped'} | {liveSensorState.speedKmh.toFixed(1)} km/h
+              </Text>
+            </View>
+            <View className={`px-2 py-1 rounded-full ${
+              liveSensorState.moving ? 'bg-red-100' : 'bg-emerald-100'
+            }`}>
+              <Text className={`text-xs font-semibold ${
+                liveSensorState.moving ? 'text-red-600' : 'text-emerald-600'
+              }`}>
+                LIVE
+              </Text>
             </View>
           </View>
-        )}
+          <View className="flex-row items-center mt-3 pt-3 border-t border-slate-100">
+            <Ionicons
+              name={modelStatus.running && liveSensorState.online ? 'radio-outline' : 'cloud-offline-outline'}
+              size={14}
+              color="#94A3B8"
+            />
+            <Text className="text-xs text-slate-500 ml-1">
+              {liveSensorStatusText}
+            </Text>
+            <View className={`ml-auto px-2 py-0.5 rounded-full ${
+              liveSensorRisk === 'OFF' || liveSensorRisk === 'IR OFF' ? 'bg-slate-100' : liveSensorRisk === 'CRITICAL' ? 'bg-red-100' : liveSensorRisk === 'WARNING' ? 'bg-amber-100' : 'bg-emerald-100'
+            }`}>
+              <Text className={`text-xs font-semibold ${
+                liveSensorRisk === 'OFF' || liveSensorRisk === 'IR OFF' ? 'text-slate-500' : liveSensorRisk === 'CRITICAL' ? 'text-red-600' : liveSensorRisk === 'WARNING' ? 'text-amber-600' : 'text-emerald-600'
+              }`}>
+                {liveSensorRisk}
+              </Text>
+            </View>
+          </View>
+        </View>
 
         <TouchableOpacity
           onPress={() => setAutoRefresh(!autoRefresh)}
@@ -508,7 +937,7 @@ export default function FootboardMonitor() {
                       time={formatTime(alert.created_at)}
                       title={getAlertTitle(alert.alert_type, alert.status)}
                       message={`${sanitizeMessage(alert.message)} • Speed: ${alert.speed} km/h`}
-                      severity={alert.status}
+                      severity={alert.status ?? 'SAFE'}
                       confidence={alert.confidence}
                       icon={getAlertIcon(alert.alert_type, alert.status)}
                       sensorSteps={extractSensorSteps(alert.alert_type)}
@@ -527,7 +956,7 @@ export default function FootboardMonitor() {
                       time={formatTime(alert.created_at)}
                       title={getAlertTitle(alert.alert_type, alert.status)}
                       message={`${sanitizeMessage(alert.message)} • Speed: ${alert.speed} km/h`}
-                      severity={alert.status}
+                      severity={alert.status ?? 'SAFE'}
                       confidence={alert.confidence}
                       icon={getAlertIcon(alert.alert_type, alert.status)}
                       sensorSteps={extractSensorSteps(alert.alert_type)}
@@ -546,7 +975,7 @@ export default function FootboardMonitor() {
                       time={formatTime(alert.created_at)}
                       title={getAlertTitle(alert.alert_type, alert.status)}
                       message={`${sanitizeMessage(alert.message)} • Speed: ${alert.speed} km/h`}
-                      severity={alert.status}
+                      severity={alert.status ?? 'SAFE'}
                       confidence={alert.confidence}
                       icon={getAlertIcon(alert.alert_type, alert.status)}
                       sensorSteps={extractSensorSteps(alert.alert_type)}

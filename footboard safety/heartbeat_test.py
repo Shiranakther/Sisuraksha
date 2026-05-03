@@ -4,9 +4,28 @@ Simple heartbeat and alert test script - no camera required
 import requests
 import time
 import random
+import sys
+from pathlib import Path
 
-SERVER_URL = "http://localhost:5000/api/safety"
-DRIVER_ID = "8c394627-e397-4bd5-928f-4cc66cfebac1"  # Working driver ID
+
+def _attach_repo_root():
+    this_file = Path(__file__).resolve()
+    for parent in this_file.parents:
+        if (parent / "shared_network_config.py").exists():
+            root_path = str(parent)
+            if root_path not in sys.path:
+                sys.path.append(root_path)
+            return
+
+
+_attach_repo_root()
+
+from shared_network_config import load_network_config
+
+NETWORK_CONFIG = load_network_config()
+
+SERVER_URL = NETWORK_CONFIG["FOOTBOARD_SERVER_URL"]
+DRIVER_ID = NETWORK_CONFIG["DRIVER_ID"]
 
 def send_heartbeat():
     try:

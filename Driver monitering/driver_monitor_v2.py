@@ -6,6 +6,8 @@ import requests
 import numpy as np
 import argparse
 import os
+import sys
+from pathlib import Path
 from collections import defaultdict
 from ultralytics import YOLO
 from datetime import datetime
@@ -16,15 +18,32 @@ except Exception:
     mp = None
 
 
+def _attach_repo_root():
+    this_file = Path(__file__).resolve()
+    for parent in this_file.parents:
+        if (parent / "shared_network_config.py").exists():
+            root_path = str(parent)
+            if root_path not in sys.path:
+                sys.path.append(root_path)
+            return
+
+
+_attach_repo_root()
+
+from shared_network_config import build_phone_video_url, load_network_config
+
+NETWORK_CONFIG = load_network_config()
+
+
 # --- SERVER CONFIGURATION ---
-SERVER_URL = "http://localhost:5000/api/driver-monitor"
-DRIVER_ID = "8c394627-e397-4bd5-928f-4cc66cfebac1"
+SERVER_URL = NETWORK_CONFIG["DRIVER_MONITOR_SERVER_URL"]
+DRIVER_ID = NETWORK_CONFIG["DRIVER_ID"]
 
 # --- CAMERA CONFIGURATION ---
 USE_LAPTOP_CAMERA = True
 LAPTOP_CAMERA_INDEX = 0
-PHONE_IP = "10.60.136.249:8080"
-VIDEO_URL = f"http://{PHONE_IP}/video"
+PHONE_IP = NETWORK_CONFIG["PHONE_IP"]
+VIDEO_URL = build_phone_video_url(PHONE_IP)
 
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
@@ -619,6 +638,21 @@ def parse_args():
         description="Driver Monitoring V2.2 with startup calibration checks"
     )
     parser.add_argument(
+        "--server_url",
+        default=SERVER_URL,
+        help="Driver monitor backend URL.",
+    )
+    parser.add_argument(
+        "--driver_id",
+        default=DRIVER_ID,
+        help="Driver UUID sent in heartbeat and alert payloads.",
+    )
+    parser.add_argument(
+        "--phone_ip",
+        default=PHONE_IP,
+        help="Phone IP webcam endpoint host:port used with --camera phone.",
+    )
+    parser.add_argument(
         "--camera",
         choices=["laptop", "phone"],
         default=default_camera,
@@ -645,11 +679,15 @@ def parse_args():
 
 def main():
     args = parse_args()
+    global SERVER_ENABLED, SERVER_URL, DRIVER_ID, PHONE_IP, VIDEO_URL
+    SERVER_ENABLED = not args.no_server
+    SERVER_URL = args.server_url
+    DRIVER_ID = args.driver_id
+    PHONE_IP = args.phone_ip
+    VIDEO_URL = build_phone_video_url(PHONE_IP)
+
     active_camera_source = LAPTOP_CAMERA_INDEX if args.camera == "laptop" else VIDEO_URL
     active_mount_profile = args.mount_profile
-
-    global SERVER_ENABLED
-    SERVER_ENABLED = not args.no_server
 
     print("=" * 60)
     print("DRIVER MONITORING SYSTEM V2.2")
