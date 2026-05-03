@@ -391,7 +391,7 @@ export default function DriverMonitorScreen() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, fetchAlerts, fetchCalibrationStatus, fetchModelStatus, fetchStatus]);
+  }, [autoRefresh, driverId, fetchAlerts, fetchCalibrationStatus, fetchModelStatus, fetchStatus]);
 
   useEffect(() => {
     if (!autoRefresh) return;
