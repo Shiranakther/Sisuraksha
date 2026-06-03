@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert, Image, Modal } from 'react-native';
 import { useRegister, useSchools } from '../hooks/useApi'; 
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
+import MapView, { Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker'; 
 import * as SecureStore from 'expo-secure-store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function DriverRegisterForm() {
+  const insets = useSafeAreaInsets();
   // User Info
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   
   // Driver Info
   const [license, setLicense] = useState('');
@@ -22,6 +26,8 @@ function DriverRegisterForm() {
   // Location Data
   const [currentLoc, setCurrentLoc] = useState<{lat: number, lon: number} | null>(null);
   const [gpsLoading, setGpsLoading] = useState(true);
+  const [showMap, setShowMap] = useState(false);
+  const [tempLoc, setTempLoc] = useState<{lat: number, lon: number} | null>(null);
 
   // Hooks
   const registerMutation = useRegister();
@@ -61,7 +67,7 @@ function DriverRegisterForm() {
 
   const handleRegister = async () => {
     // 1. Validation
-    if (!email || !password || !firstName || !lastName || !license) {
+    if (!email || !password || !firstName || !lastName || !phoneNumber || !license) {
       Alert.alert('Missing Fields', 'Please fill in your personal details.');
       return;
     }
@@ -91,6 +97,7 @@ function DriverRegisterForm() {
       role: 'Driver',
       first_name: firstName,
       last_name: lastName,
+      phone_number: phoneNumber,
       license_number: license,
       
       // Start = Phone GPS
@@ -107,7 +114,21 @@ function DriverRegisterForm() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-white" contentContainerStyle={{ padding: 24, paddingBottom: 50 }}>
+    <ScrollView 
+      className="flex-1 bg-white" 
+      contentContainerStyle={{ 
+        paddingHorizontal: 24, 
+        paddingTop: Math.max(insets.top, 20) + 24,
+        paddingBottom: Math.max(insets.bottom, 20) + 50 
+      }}
+    >
+      <View className="items-center mb-4">
+        <Image 
+          source={require('../assets/images/sisuraksha_logo.png')} 
+          style={{ width: 120, height: 120 }}
+          resizeMode="contain" 
+        />
+      </View>
       <Text className="text-3xl font-bold text-center mb-2 text-slate-800">Driver Registration</Text>
       <Text className="text-slate-500 text-center mb-8">Register your bus and route</Text>
 
@@ -118,6 +139,7 @@ function DriverRegisterForm() {
           <TextInput placeholder="First Name" value={firstName} onChangeText={setFirstName} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4" />
           <TextInput placeholder="Last Name" value={lastName} onChangeText={setLastName} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4" />
         </View>
+        <TextInput placeholder="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" autoCapitalize="none" className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" />
         <TextInput placeholder="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" />
         <TextInput placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry className="bg-slate-50 border border-slate-200 rounded-xl p-4" />
       </View>
@@ -136,8 +158,16 @@ function DriverRegisterForm() {
 
         {/* Start Point */}
         <View className="mb-4">
-          <Text className="text-xs text-slate-400 uppercase font-bold mb-1">Trip Start (Your Location)</Text>
-          <View className="flex-row items-center bg-green-50 p-3 rounded-lg border border-green-100">
+          <View className="flex-row items-center justify-between mb-1">
+            <Text className="text-xs text-slate-400 uppercase font-bold">Trip Start</Text>
+            <TouchableOpacity onPress={() => { setTempLoc(currentLoc || {lat: 6.9271, lon: 79.8612}); setShowMap(true); }}>
+              <Text className="text-xs text-blue-600 font-bold">Change Location</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity 
+            className="flex-row items-center bg-green-50 p-3 rounded-lg border border-green-100"
+            onPress={() => { setTempLoc(currentLoc || {lat: 6.9271, lon: 79.8612}); setShowMap(true); }}
+          >
              <Ionicons name="location" size={20} color="#16A34A" />
              {gpsLoading ? (
                <ActivityIndicator size="small" className="ml-2" />
@@ -146,7 +176,7 @@ function DriverRegisterForm() {
                  {currentLoc ? `${currentLoc.lat.toFixed(4)}, ${currentLoc.lon.toFixed(4)}` : "GPS Failed"}
                </Text>
              )}
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* End Point (School Picker) */}
@@ -211,6 +241,54 @@ function DriverRegisterForm() {
       <TouchableOpacity onPress={() => router.push('/login')} className="mt-6 items-center">
         <Text className="text-slate-500">Already have an account? <Text className="text-blue-600 font-bold">Log In</Text></Text>
       </TouchableOpacity>
+
+      {/* Map Modal for changing start location */}
+      <Modal visible={showMap} animationType="slide" transparent={true}>
+        <View className="flex-1 bg-white">
+          <View className="pt-12 pb-4 px-4 bg-white border-b border-slate-200 flex-row justify-between items-center shadow-sm">
+            <Text className="text-lg font-bold text-slate-800">Select Start Location</Text>
+            <TouchableOpacity onPress={() => setShowMap(false)}>
+              <Text className="text-blue-600 font-bold text-base">Cancel</Text>
+            </TouchableOpacity>
+          </View>
+          {tempLoc ? (
+            <MapView
+              style={{ flex: 1 }}
+              initialRegion={{
+                latitude: tempLoc.lat,
+                longitude: tempLoc.lon,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }}
+              onPress={(e) => {
+                setTempLoc({
+                  lat: e.nativeEvent.coordinate.latitude,
+                  lon: e.nativeEvent.coordinate.longitude,
+                });
+              }}
+            >
+              <Marker
+                coordinate={{ latitude: tempLoc.lat, longitude: tempLoc.lon }}
+              />
+            </MapView>
+          ) : (
+            <View className="flex-1 justify-center items-center bg-slate-50">
+              <Text className="text-slate-500">Location not available.</Text>
+            </View>
+          )}
+          <View className="p-6 bg-white pb-10 shadow-lg border-t border-slate-100">
+            <TouchableOpacity 
+              className="bg-blue-600 p-4 rounded-xl items-center shadow-lg shadow-blue-200"
+              onPress={() => {
+                if (tempLoc) setCurrentLoc(tempLoc);
+                setShowMap(false);
+              }}
+            >
+              <Text className="text-white font-bold text-lg">Save Location</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
