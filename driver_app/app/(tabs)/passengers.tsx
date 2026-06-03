@@ -114,7 +114,7 @@
 // }
 
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, FlatList, Linking, Alert, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, FlatList, Linking, Alert, Switch, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useDriverChildren, useTriggerRegistration } from '@/hooks/useApi';
 
@@ -124,11 +124,15 @@ export default function DriverPassengersScreen() {
   
   // State for filtering
   const [showNoCardOnly, setShowNoCardOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Filter Logic
-  const displayedChildren = showNoCardOnly 
-    ? children?.filter((c: any) => !c.card_id) 
-    : children;
+  const displayedChildren = children?.filter((c: any) => {
+    const matchesCard = showNoCardOnly ? !c.card_id : true;
+    const matchesSearch = c.child_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          c.school_name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCard && matchesSearch;
+  });
 
   const handleCall = (phoneNumber: string | null) => {
     if (!phoneNumber) return Alert.alert('No Number', 'Parent has not added a phone number.');
@@ -223,12 +227,24 @@ export default function DriverPassengersScreen() {
         <Text className="text-slate-500 mb-4">Manage student cards & pickup</Text>
 
         {/* Filter Toggle */}
-        <View className="flex-row items-center justify-between bg-white p-3 rounded-xl border border-slate-100">
+        <View className="flex-row items-center justify-between bg-white p-3 rounded-xl border border-slate-100 mb-3">
           <Text className="font-bold text-slate-700">Show Missing Cards Only</Text>
           <Switch 
             value={showNoCardOnly} 
             onValueChange={setShowNoCardOnly}
             trackColor={{ false: "#cbd5e1", true: "#F97316" }}
+          />
+        </View>
+
+        {/* Search Bar */}
+        <View className="flex-row items-center bg-white border border-slate-200 rounded-xl px-4 py-3">
+          <Ionicons name="search" size={20} color="#94a3b8" />
+          <TextInput 
+            className="flex-1 ml-3 text-slate-700 font-medium"
+            placeholder="Search by name or school..."
+            placeholderTextColor="#94a3b8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
           />
         </View>
       </View>

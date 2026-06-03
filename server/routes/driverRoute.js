@@ -3,6 +3,8 @@ import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
 import { registerDriverProfile,getAssignedChildren,getDriverAttendance,getAttendanceAlerts } from '../controllers/driverController.js'; // Import the controller logic
+import { getDriverProfile, updateDriverProfile, deleteDriverProfile } from '../controllers/driverProfileController.js';
+import { getDriverVehicle, createDriverVehicle, updateDriverVehicle, deleteDriverVehicle } from '../controllers/vehicleController.js';
 
 const router = express.Router();
 
@@ -53,6 +55,57 @@ router.get(
 
 
 router.get('/alerts', authenticateToken, authorizeRole([ROLES.DRIVER]), getAttendanceAlerts);
+
+// --- DRIVER PROFILE ROUTES ---
+router.get(
+    '/profile',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getDriverProfile
+);
+
+router.put(
+    '/profile',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    updateDriverProfile
+);
+
+router.delete(
+    '/profile',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    deleteDriverProfile
+);
+
+// --- VEHICLE ROUTES ---
+router.get(
+    '/vehicle',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    getDriverVehicle
+);
+
+router.post(
+    '/vehicle',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    createDriverVehicle
+);
+
+router.put(
+    '/vehicle',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    updateDriverVehicle
+);
+
+router.delete(
+    '/vehicle',
+    authenticateToken,
+    authorizeRole([ROLES.DRIVER]),
+    deleteDriverVehicle
+);
 
 export default router;
 

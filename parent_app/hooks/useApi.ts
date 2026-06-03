@@ -30,7 +30,8 @@ export const useRegister = () => {
       password: string;
       role: UserRole;
       first_name: string;
-      last_name: string
+      last_name: string;
+      phone_number: string;
     }) => {
       const { data } = await apiClient.post(API_ENDPOINTS.REGISTER, creds);
       return data;
@@ -279,5 +280,120 @@ export const useAllChildrenDeclarations = () => {
       return declarations;
     },
     enabled: !!children && children.length > 0,
+  });
+};
+
+
+// ========== FACE RECOGNITION HOOKS ==========
+
+export const useFaceRegister = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ childId, images }: { childId: string; images: string[] }) => {
+      const formData = new FormData();
+      formData.append('child_id', childId);
+      images.forEach((uri, i) => {
+        formData.append('images', {
+          uri,
+          type: 'image/jpeg',
+          name: `face_${i + 1}.jpg`,
+        } as any);
+      });
+      const { data } = await apiClient.post(API_ENDPOINTS.FACE_REGISTER, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+      return data;
+    },
+    onSuccess: (_, { childId }) => {
+      queryClient.invalidateQueries({ queryKey: ['faceStatus', childId] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+    },
+    onError: (err: any) => {
+      Alert.alert('Registration Failed', err.response?.data?.message || err.response?.data?.error || 'Face registration failed');
+    },
+  });
+};
+
+export const useFaceStatus = (childId: string) => {
+  return useQuery({
+    queryKey: ['faceStatus', childId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${API_ENDPOINTS.FACE_STATUS}/${childId}`);
+      return data.data;
+    },
+    enabled: !!childId,
+    retry: false,           // Don't retry on 500 — avoids log spam when table is missing
+    staleTime: 30_000,      // Cache for 30s to reduce repeat calls per child card
+  });
+};
+
+export const useDeleteFace = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (childId: string) => {
+      const { data } = await apiClient.delete(`${API_ENDPOINTS.FACE_DELETE}/${childId}`);
+      return data;
+    },
+    onSuccess: (_, childId) => {
+      queryClient.invalidateQueries({ queryKey: ['faceStatus', childId] });
+      queryClient.invalidateQueries({ queryKey: ['myChildren'] });
+      Alert.alert('Success', 'Face data removed. You can re-register.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete face data');
+    },
+  });
+};
+
+// ========== PROFILE MANAGEMENT HOOKS ==========
+
+export const useProfile = () => {
+  return useQuery({
+    queryKey: ['myProfile'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.PROFILE_GET);
+      return data.data;
+    },
+  });
+};
+
+export const useUpdateProfile = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (profileData: { first_name: string; last_name: string; address?: string; phone_number?: string }) => {
+      const { data } = await apiClient.put(API_ENDPOINTS.PROFILE_UPDATE, profileData);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myProfile'] });
+      Alert.alert('Success', 'Profile updated successfully!');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update profile');
+    },
+  });
+};
+
+export const useDeleteProfile = () => {
+  const { signOut } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.delete(API_ENDPOINTS.PROFILE_DELETE);
+      return data;
+    },
+    onSuccess: () => {
+      // Clear local state and navigate to login
+      signOut();
+      queryClient.clear();
+      router.replace('/login');
+      Alert.alert('Success', 'Your account has been deleted.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to delete account');
+    },
   });
 };
