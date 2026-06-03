@@ -1,4 +1,7 @@
 {
+  "typescript.tsdk": "./node_modules/typescript/lib",
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "typescript.validate.enable": true,
   "editor.codeActionsOnSave": {
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",

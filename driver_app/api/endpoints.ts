@@ -3,9 +3,21 @@ export const API_ENDPOINTS = {
   REGISTER: '/auth/register',
   LOGOUT: '/auth/logout',
   REFRESH: '/auth/refresh',
+  
+  // Driver Profile Endpoints
+  DRIVER_PROFILE_GET: '/driver/profile',
+  DRIVER_PROFILE_UPDATE: '/driver/profile',
+  DRIVER_PROFILE_DELETE: '/driver/profile',
+
   SCHOOLS: '/parent/schools',
   DRIVER_ATTENDANCE:'/driver/attendance',
   ALERTS: '/driver/alerts',
+
+  // Vehicle Management Endpoints
+  VEHICLE_GET: '/driver/vehicle',
+  VEHICLE_CREATE: '/driver/vehicle',
+  VEHICLE_UPDATE: '/driver/vehicle',
+  VEHICLE_DELETE: '/driver/vehicle',
 
  // Footboard Safety endpoints
   SAFETY_STATUS: '/safety/status',
@@ -38,5 +50,8 @@ export const API_ENDPOINTS = {
   WINDOW_MODEL_STOP: '/window-safety/model/stop',
   WINDOW_MODEL_STATUS: '/window-safety/model/status',
 
+    // Face Recognition
+  FACE_VERIFY: '/face/verify',
+  FACE_SERVICE_STATUS: '/face/service/status',
 
 } as const;

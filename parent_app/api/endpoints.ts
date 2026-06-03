@@ -3,6 +3,9 @@ export const API_ENDPOINTS = {
   REGISTER: '/auth/register',
   LOGOUT: '/auth/logout',
   REFRESH: '/auth/refresh',
+  PROFILE_GET: '/profile',
+  PROFILE_UPDATE: '/profile',
+  PROFILE_DELETE: '/profile',
   CREATE_PARENT: '/parent/parent_register',
   LOCATION: '/profile/location',
   SCHOOLS: '/parent/schools',
@@ -13,4 +16,10 @@ export const API_ENDPOINTS = {
   PARENT_ATTENDANCE: '/parent/my-attendance',
   DECLARE_ATTENDANCE: '/parent/declare-attendance',
   GET_DECLARATION: '/parent/attendance-declaration',
+
+  // Face Recognition
+  FACE_REGISTER: '/face/register',
+  FACE_STATUS: '/face/status',
+  FACE_DELETE: '/face/register',
+  FACE_SERVICE_STATUS: '/face/service/status',
 } as const;

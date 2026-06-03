@@ -174,6 +174,7 @@ export const getMyChildren = async (req, res, next) => {
                 c.id,
                 c.child_name,
                 c.school_id,
+                c.card_id,
                 c.assigned_driver_id, -- 👈 Get Driver ID
                 s.school_name,
                 v.vehicle_number AS assigned_vehicle_number -- 👈 Get Vehicle Number
@@ -224,6 +225,12 @@ export const getParentAttendance = async (req, res, next) => {
                 a.evening_drop_time,
                 a.morning_pickup_lat,
                 a.morning_pickup_lon,
+                a.morning_drop_lat,
+                a.morning_drop_lon,
+                a.evening_pickup_lat,
+                a.evening_pickup_lon,
+                a.evening_drop_lat,
+                a.evening_drop_lon,
                 a.last_action
             FROM public.attendance a
             JOIN public.children c ON a.child_id = c.id
