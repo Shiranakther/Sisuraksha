@@ -41,6 +41,7 @@ export default function TabLayout() {
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: ({ color }) => <Ionicons name="settings" size={26} color={color} /> }} />
 
       {/* Hidden Tabs (Still in Layout) */}
+      <Tabs.Screen name="trip-history" options={{ href: null }} />
       <Tabs.Screen name="attendance" options={{ href: null }} />
       <Tabs.Screen name="passengers" options={{ href: null }} />
       <Tabs.Screen name="explore" options={{ href: null }} />

@@ -50,8 +50,15 @@ export const API_ENDPOINTS = {
   WINDOW_MODEL_STOP: '/window-safety/model/stop',
   WINDOW_MODEL_STATUS: '/window-safety/model/status',
 
-    // Face Recognition
+  // Face Recognition
   FACE_VERIFY: '/face/verify',
   FACE_SERVICE_STATUS: '/face/service/status',
+
+  // Trip endpoints
+  TRIP_START: '/driver/trip/start',
+  TRIP_END: '/driver/trip/end',
+  TRIP_ACTIVE: '/driver/trip/active',
+  TRIP_HISTORY: '/driver/trip/history',
+  PENDING_DROPOFFS: '/driver/pending-dropoffs',
 
 } as const;

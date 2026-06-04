@@ -2,7 +2,17 @@ import express from 'express';
 import { authenticateToken } from '../middleware/authenticate.js';
 import { authorizeRole } from '../middleware/authorize.js';
 import { ROLES } from '../config/roles.js';
-import { registerDriverProfile,getAssignedChildren,getDriverAttendance,getAttendanceAlerts } from '../controllers/driverController.js'; // Import the controller logic
+import { 
+    registerDriverProfile, 
+    getAssignedChildren, 
+    getDriverAttendance, 
+    getAttendanceAlerts,
+    startTrip,
+    endTrip,
+    getActiveTrip,
+    getTripHistory,
+    getPendingDropoffs
+} from '../controllers/driverController.js';
 import { getDriverProfile, updateDriverProfile, deleteDriverProfile } from '../controllers/driverProfileController.js';
 import { getDriverVehicle, createDriverVehicle, updateDriverVehicle, deleteDriverVehicle } from '../controllers/vehicleController.js';
 
@@ -106,6 +116,13 @@ router.delete(
     authorizeRole([ROLES.DRIVER]),
     deleteDriverVehicle
 );
+
+// --- TRIP & DROPOFF ROUTES ---
+router.post('/trip/start', authenticateToken, authorizeRole([ROLES.DRIVER]), startTrip);
+router.post('/trip/end', authenticateToken, authorizeRole([ROLES.DRIVER]), endTrip);
+router.get('/trip/active', authenticateToken, authorizeRole([ROLES.DRIVER]), getActiveTrip);
+router.get('/trip/history', authenticateToken, authorizeRole([ROLES.DRIVER]), getTripHistory);
+router.get('/pending-dropoffs', authenticateToken, authorizeRole([ROLES.DRIVER]), getPendingDropoffs);
 
 export default router;
 

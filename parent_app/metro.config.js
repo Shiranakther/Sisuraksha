@@ -11,4 +11,3 @@ try {
   console.error(" NativeWind Failed to Load:", error.message);
   console.warn(" Falling back to default Expo config. Tailwind styles will not work.");
   module.exports = config;
-}
