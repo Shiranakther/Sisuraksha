@@ -3,8 +3,11 @@ import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'rea
 import { useAuth } from '../../auth/useAuth';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useDriverProfile } from '../../hooks/useApi';
+import { useDriverProfile, useActiveTrip, useStartTrip, useEndTrip } from '../../hooks/useApi';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useGeofenceAlert } from '../../hooks/useGeofenceAlert';
+import MissedDropoffAlert from '../../components/MissedDropoffAlert';
+import * as Location from 'expo-location';
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -12,6 +15,36 @@ export default function HomeScreen() {
 
   // Fetch Driver Profile
   const { data: profile, isLoading } = useDriverProfile();
+
+  const { data: activeTrip } = useActiveTrip();
+  const startTripMutation = useStartTrip();
+  const endTripMutation = useEndTrip();
+  
+  const isTripActive = !!activeTrip;
+  const { showModal, missedChildren, dismissAlert } = useGeofenceAlert(isTripActive);
+
+  const handleTripAction = async () => {
+    try {
+      const location = await Location.getCurrentPositionAsync({});
+      if (isTripActive) {
+        endTripMutation.mutate({ 
+          trip_id: activeTrip.id, 
+          end_lat: location.coords.latitude, 
+          end_lon: location.coords.longitude 
+        });
+      } else {
+        const hour = new Date().getHours();
+        const type = hour < 12 ? 'morning' : 'evening';
+        startTripMutation.mutate({ 
+          type, 
+          start_lat: location.coords.latitude, 
+          start_lon: location.coords.longitude 
+        });
+      }
+    } catch (e) {
+      console.log('Location error:', e);
+    }
+  };
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -62,17 +95,25 @@ export default function HomeScreen() {
         <Text className="text-slate-800 font-bold mb-4 text-lg">Active Trip Controls</Text>
 
         <TouchableOpacity
-          onPress={() => router.push('/')}
-          className="w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex-row items-center mb-8"
+          onPress={handleTripAction}
+          className={`w-full p-6 rounded-2xl shadow-sm border flex-row items-center mb-8 ${isTripActive ? 'bg-red-50 border-red-200' : 'bg-white border-slate-100'}`}
         >
-          <View className="bg-orange-100 p-4 rounded-full mr-4">
-            <Ionicons name="bus" size={32} color="#F97316" />
+          <View className={`${isTripActive ? 'bg-red-200' : 'bg-orange-100'} p-4 rounded-full mr-4`}>
+            <Ionicons name="bus" size={32} color={isTripActive ? "#DC2626" : "#F97316"} />
           </View>
           <View className="flex-1">
-            <Text className="text-lg font-bold text-slate-800">Start / Manage Trip</Text>
-            <Text className="text-slate-500">Live navigation & student tracking</Text>
+            <Text className="text-lg font-bold text-slate-800">
+              {isTripActive ? 'End Current Trip' : 'Start Trip'}
+            </Text>
+            <Text className="text-slate-500">
+              {isTripActive ? 'Stop live navigation & tracking' : 'Live navigation & student tracking'}
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
+          {startTripMutation.isPending || endTripMutation.isPending ? (
+            <ActivityIndicator color={isTripActive ? "#DC2626" : "#F97316"} />
+          ) : (
+             <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
+          )}
         </TouchableOpacity>
 
         {/* --- Secondary Grid --- */}
@@ -100,15 +141,15 @@ export default function HomeScreen() {
             <Text className="text-base font-bold text-slate-800 text-center">Attendance Logs</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => router.push('./attendance')}
+          <TouchableOpacity 
+            onPress={() => router.push('/(tabs)/trip-history')}
             className="w-[47%] bg-white p-5 rounded-2xl shadow-sm border border-slate-100 items-center justify-center"
           >
             <View className="bg-blue-100 w-14 h-14 rounded-full items-center justify-center mb-3">
-              <Ionicons name="camera" size={28} color="#3B82F6" />
+              <Ionicons name="map-outline" size={28} color="#3B82F6" />
             </View>
-            <Text className="text-base font-bold text-slate-800 text-center">Face Scan</Text>
-            <Text className="text-xs text-slate-400 text-center mt-1">Verify identity</Text>
+            <Text className="text-base font-bold text-slate-800 text-center">Trip History</Text>
+            <Text className="text-xs text-slate-400 text-center mt-1">Past routes</Text>
           </TouchableOpacity>
 
         </View>
@@ -130,6 +171,7 @@ export default function HomeScreen() {
         )}
 
       </ScrollView>
+      <MissedDropoffAlert visible={showModal} missedChildren={missedChildren} onDismiss={dismissAlert} />
     </View>
   );
 }

@@ -222,3 +222,147 @@ export const getAttendanceAlerts = async (req, res, next) => {
         next(new AppError('Database error generating alerts', 500));
     }
 };
+
+export const startTrip = async (req, res, next) => {
+    const { type, start_lat, start_lon } = req.body;
+    const userId = req.user.id;
+
+    if (!type || !start_lat || !start_lon) {
+        return next(new AppError('Missing required fields for starting trip', 400));
+    }
+
+    try {
+        const driverRes = await pgPool.query('SELECT id FROM public.driver WHERE user_id = $1', [userId]);
+        if (driverRes.rowCount === 0) return next(new AppError('Driver not found', 404));
+        const driverId = driverRes.rows[0].id;
+
+        const result = await pgPool.query(`
+            INSERT INTO public.trips (driver_id, type, start_lat, start_lon, status)
+            VALUES ($1, $2, $3, $4, 'active')
+            RETURNING *
+        `, [driverId, type, start_lat, start_lon]);
+
+        res.status(201).json({
+            status: 'success',
+            data: result.rows[0]
+        });
+    } catch (error) {
+        next(new AppError('Database error starting trip', 500));
+    }
+};
+
+export const endTrip = async (req, res, next) => {
+    const { trip_id, end_lat, end_lon } = req.body;
+    
+    if (!trip_id || !end_lat || !end_lon) {
+        return next(new AppError('Missing required fields for ending trip', 400));
+    }
+
+    try {
+        const result = await pgPool.query(`
+            UPDATE public.trips
+            SET status = 'completed', ended_at = NOW(), end_lat = $1, end_lon = $2
+            WHERE id = $3
+            RETURNING *
+        `, [end_lat, end_lon, trip_id]);
+
+        if (result.rowCount === 0) {
+            return next(new AppError('Trip not found', 404));
+        }
+
+        res.status(200).json({
+            status: 'success',
+            data: result.rows[0]
+        });
+    } catch (error) {
+        next(new AppError('Database error ending trip', 500));
+    }
+};
+
+export const getActiveTrip = async (req, res, next) => {
+    const userId = req.user.id;
+
+    try {
+        const driverRes = await pgPool.query('SELECT id FROM public.driver WHERE user_id = $1', [userId]);
+        if (driverRes.rowCount === 0) return next(new AppError('Driver not found', 404));
+        const driverId = driverRes.rows[0].id;
+
+        const result = await pgPool.query(`
+            SELECT * FROM public.trips
+            WHERE driver_id = $1 AND status = 'active'
+            ORDER BY started_at DESC
+            LIMIT 1
+        `, [driverId]);
+
+        res.status(200).json({
+            status: 'success',
+            data: result.rows[0] || null
+        });
+    } catch (error) {
+        next(new AppError('Database error fetching active trip', 500));
+    }
+};
+
+export const getTripHistory = async (req, res, next) => {
+    const userId = req.user.id;
+
+    try {
+        const driverRes = await pgPool.query('SELECT id FROM public.driver WHERE user_id = $1', [userId]);
+        if (driverRes.rowCount === 0) return next(new AppError('Driver not found', 404));
+        const driverId = driverRes.rows[0].id;
+
+        const result = await pgPool.query(`
+            SELECT * FROM public.trips
+            WHERE driver_id = $1 AND status = 'completed'
+            ORDER BY started_at DESC
+        `, [driverId]);
+
+        res.status(200).json({
+            status: 'success',
+            results: result.rowCount,
+            data: result.rows
+        });
+    } catch (error) {
+        next(new AppError('Database error fetching trip history', 500));
+    }
+};
+
+export const getPendingDropoffs = async (req, res, next) => {
+    const userId = req.user.id;
+
+    try {
+        const driverRes = await pgPool.query('SELECT id FROM public.driver WHERE user_id = $1', [userId]);
+        if (driverRes.rowCount === 0) return next(new AppError('Driver not found', 404));
+        const driverId = driverRes.rows[0].id;
+
+        const result = await pgPool.query(`
+            SELECT 
+                c.id AS child_id,
+                c.child_name,
+                a.last_action,
+                CASE 
+                    WHEN a.last_action = 'MORNING_PICKUP' THEN s.school_latitude
+                    WHEN a.last_action = 'EVENING_PICKUP' THEN a.morning_pickup_lat
+                END AS target_lat,
+                CASE 
+                    WHEN a.last_action = 'MORNING_PICKUP' THEN s.school_longitude
+                    WHEN a.last_action = 'EVENING_PICKUP' THEN a.morning_pickup_lon
+                END AS target_lon,
+                s.school_name
+            FROM public.attendance a
+            JOIN public.children c ON a.child_id = c.id
+            JOIN public.school s ON c.school_id = s.id
+            WHERE c.assigned_driver_id = $1 
+              AND a.date = CURRENT_DATE 
+              AND a.last_action IN ('MORNING_PICKUP', 'EVENING_PICKUP')
+        `, [driverId]);
+
+        res.status(200).json({
+            status: 'success',
+            results: result.rowCount,
+            data: result.rows
+        });
+    } catch (error) {
+        next(new AppError('Database error fetching pending dropoffs', 500));
+    }
+};

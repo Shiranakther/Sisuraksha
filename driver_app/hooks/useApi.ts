@@ -1,58 +1,11 @@
 // hooks/useApi.ts
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import apiClient from '../api/axios'; // Ensure this path is correct
+import apiClient from '../api/axios';
 import { useAuth } from '../auth/useAuth';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
 import { API_ENDPOINTS } from '@/api/endpoints';
-// --- Types ---
 import { UserRole } from '../utils/types';
-
-
-
-// export const useLogin = () => {
-//   const { signIn } = useAuth();
-//   return useMutation({
-//     mutationFn: async (creds: {email:string, password:string}) => {
-//       const { data } = await apiClient.post<AuthResponse>(API_ENDPOINTS.LOGIN, creds);
-//       return data;
-//     },
-//     onSuccess: (data) => {
-//       signIn(data.token, data.data);
-//       router.replace('/(tabs)/home'); // 👈 Directs to TABS
-//     },
-//     onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Login failed')
-//   });
-// };
-
-// export const useRegister = () => {
-//   return useMutation({
-//     mutationFn: async (creds: {email:string, password:string, role:UserRole}) => {
-//       const { data } = await apiClient.post<AuthResponse>(API_ENDPOINTS.REGISTER, creds);
-//       return data;
-//     },
-//     onSuccess: () => {
-//       Alert.alert('Success', 'Account created. Please login.', [
-//         { text: 'OK', onPress: () => router.push('/login') }
-//       ]);
-//     },
-//     onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Registration failed')
-//   });
-// };
-
-// export const useLogout = () => {
-//   const { signOut } = useAuth();
-//   const queryClient = useQueryClient();
-//   return useMutation({
-//     mutationFn: async () => apiClient.post(API_ENDPOINTS.LOGOUT),
-//     onSettled: () => {
-//       signOut();
-//       queryClient.clear();
-//       router.replace('/');
-//     }
-//   });
-// };
-
 
 interface RegisterPayload {
   email: string;
@@ -62,20 +15,12 @@ interface RegisterPayload {
   last_name: string;
   phone_number?: string;
   address?: string;
-  // Driver specific
   license_number?: string;
   trip_start_lat?: number;
   trip_start_lon?: number;
   trip_end_lat?: number;
   trip_end_lon?: number;
   school_ids?: string[];
-}
-
-interface LocationPayload {
-  address: string;
-  city: string;
-  latitude: number;
-  longitude: number;
 }
 
 // ==========================================
@@ -126,7 +71,7 @@ export const useLogout = () => {
 };
 
 // ==========================================
-// 2. SHARED DATA HOOKS (Schools)
+// 2. SHARED DATA HOOKS
 // ==========================================
 
 export const useSchools = () => {
@@ -134,25 +79,20 @@ export const useSchools = () => {
     queryKey: ['schools'],
     queryFn: async () => {
       const { data } = await apiClient.get(API_ENDPOINTS.SCHOOLS);
-      return data.data; // Expecting array: [{id, school_name, latitude, longitude}, ...]
+      return data.data; 
     },
   });
 };
-
-
 
 export const useDriverChildren = () => {
   return useQuery({
     queryKey: ['driverChildren'],
     queryFn: async () => {
-      // Ensure this matches the route you just created
       const { data } = await apiClient.get('/driver/my-children');
       return data.data;
     },
   });
 };
-
-
 
 export const useTriggerRegistration = () => {
   return useMutation({
@@ -161,17 +101,13 @@ export const useTriggerRegistration = () => {
       return response.data;
     },
     onSuccess: () => {
-      Alert.alert(
-        'Registration Mode Active',
-        'Success! The IoT device is now listening. Please tap the RFID card on the device now.'
-      );
+      Alert.alert('Registration Mode Active', 'Success! The IoT device is now listening. Please tap the RFID card on the device now.');
     },
     onError: (err: any) => {
       Alert.alert('Error', err.response?.data?.message || 'Failed to trigger registration');
     }
   });
 };
-
 
 export const useDriverAttendance = (date?: string, search?: string) => {
   return useQuery({
@@ -187,15 +123,13 @@ export const useDriverAttendance = (date?: string, search?: string) => {
   });
 };
 
-
 export const useAttendanceAlerts = () => {
   return useQuery({
     queryKey: ['attendanceAlerts'],
     queryFn: async () => {
       const { data } = await apiClient.get(API_ENDPOINTS.ALERTS);
-      return data.data; // Returns array of missing students
+      return data.data; 
     },
-    // Refresh every 30 seconds to keep driver updated
     refetchInterval: 30000,
   });
 };
@@ -244,7 +178,7 @@ export const useDeleteDriverProfile = () => {
     onSuccess: () => {
       signOut();
       queryClient.clear();
-      router.replace('/'); // In Driver app, login is often at '/'
+      router.replace('/'); 
       Alert.alert('Success', 'Your account has been deleted.');
     },
     onError: (err: any) => {
@@ -262,7 +196,7 @@ export const useDriverVehicle = () => {
     queryKey: ['driverVehicle'],
     queryFn: async () => {
       const { data } = await apiClient.get(API_ENDPOINTS.VEHICLE_GET);
-      return data.data; // Returns vehicle object or null
+      return data.data; 
     },
   });
 };
@@ -277,12 +211,9 @@ export const useCreateVehicle = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['driverVehicle'] });
-      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
       Alert.alert('Success', 'Vehicle registered successfully!');
     },
-    onError: (err: any) => {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to register vehicle');
-    },
+    onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Failed to register vehicle')
   });
 };
 
@@ -296,12 +227,9 @@ export const useUpdateVehicle = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['driverVehicle'] });
-      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
       Alert.alert('Success', 'Vehicle updated successfully!');
     },
-    onError: (err: any) => {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to update vehicle');
-    },
+    onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Failed to update vehicle')
   });
 };
 
@@ -315,12 +243,9 @@ export const useDeleteVehicle = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['driverVehicle'] });
-      queryClient.invalidateQueries({ queryKey: ['driverProfile'] });
       Alert.alert('Success', 'Vehicle removed successfully.');
     },
-    onError: (err: any) => {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to delete vehicle');
-    },
+    onError: (err: any) => Alert.alert('Error', err.response?.data?.message || 'Failed to delete vehicle')
   });
 };
 
@@ -354,5 +279,69 @@ export const useFaceVerify = () => {
       });
       return data;
     },
+  });
+};
+
+// ==========================================
+// 6. TRIP MANAGEMENT & GEOFENCE HOOKS
+// ==========================================
+
+export const useStartTrip = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { type: string, start_lat: number, start_lon: number }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.TRIP_START, payload);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activeTrip'] });
+      Alert.alert('Success', 'Trip started successfully');
+    },
+  });
+};
+
+export const useEndTrip = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { trip_id: string, end_lat: number, end_lon: number }) => {
+      const { data } = await apiClient.post(API_ENDPOINTS.TRIP_END, payload);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activeTrip'] });
+      Alert.alert('Success', 'Trip ended successfully');
+    },
+  });
+};
+
+export const useActiveTrip = () => {
+  return useQuery({
+    queryKey: ['activeTrip'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_ACTIVE);
+      return data.data;
+    },
+  });
+};
+
+export const useTripHistory = () => {
+  return useQuery({
+    queryKey: ['tripHistory'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.TRIP_HISTORY);
+      return data.data;
+    },
+  });
+};
+
+export const usePendingDropoffs = (isTripActive: boolean) => {
+  return useQuery({
+    queryKey: ['pendingDropoffs'],
+    queryFn: async () => {
+      const { data } = await apiClient.get(API_ENDPOINTS.PENDING_DROPOFFS);
+      return data.data; 
+    },
+    enabled: isTripActive,
+    refetchInterval: isTripActive ? 15000 : false,
   });
 };
